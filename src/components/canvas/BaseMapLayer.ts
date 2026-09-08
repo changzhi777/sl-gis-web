@@ -4,6 +4,9 @@
  * v7.1：1 期只实现 dark（setBaseMapType('dark'|'satellite'|'tech' 其它走 noop）
  */
 import * as THREE from 'three';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { BaseLayer } from './BaseLayer';
 import { SCENE_PALETTE } from './palette';
 import { lon2xy } from './utils/lon2xy';
@@ -47,7 +50,7 @@ export interface BaseMapBBox {
 export class BaseMapLayer extends BaseLayer {
   readonly name = 'BaseMap';
   private group = new THREE.Group();
-  private lines: THREE.LineSegments | null = null;
+  private lines: LineSegments2 | null = null;
   private bbox: BaseMapBBox | null = null;
 
   override init(): void {
@@ -75,9 +78,17 @@ export class BaseMapLayer extends BaseLayer {
 
   setBaseMapType(type: BaseMapType): void {
     if (type === 'dark') {
-      this.lines && (this.lines.material as THREE.LineBasicMaterial).color.set(SCENE_PALETTE.boundaryLine);
+      this.lines && (this.lines.material as unknown as LineMaterial).color.set(SCENE_PALETTE.boundaryLine);
     }
     // satellite / tech 留 1 期 noop
+  }
+
+  /** Stage onResize 钩子：Line2 需要更新 resolution 才能正确渲染屏幕像素线宽 */
+  onResize(width: number, height: number): void {
+    if (this.lines) {
+      const m = this.lines.material as unknown as LineMaterial;
+      m.resolution.set(width, height);
+    }
   }
 
   /** 异步取 GeoJSON */
@@ -130,16 +141,19 @@ export class BaseMapLayer extends BaseLayer {
       }
     }
 
-    const geom = new THREE.BufferGeometry();
-    geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    const mat = new THREE.LineBasicMaterial({
-      color: new THREE.Color(SCENE_PALETTE.boundaryLine),
+    const geom = new LineSegmentsGeometry();
+    geom.setPositions(positions);
+    const mat = new LineMaterial({
+      color: new THREE.Color(SCENE_PALETTE.boundaryLine).getHex(),
+      linewidth: 2,  // LineMaterial 真正生效（用世界单位，需 resolution 配合）
       transparent: true,
       opacity: 0.9,
-      linewidth: 1.5, // 注意：WebGL 大多数实现忽略 linewidth，仅作语义保留
+      worldUnits: false,  // 屏幕像素单位
     });
+    // ★ 关键：必须设 resolution 才能让屏幕像素线宽生效
+    mat.resolution.set(window.innerWidth, window.innerHeight);
 
-    this.lines = new THREE.LineSegments(geom, mat);
+    this.lines = new LineSegments2(geom, mat);
     this.lines.name = 'BoundaryLines';
     this.group.add(this.lines);
 

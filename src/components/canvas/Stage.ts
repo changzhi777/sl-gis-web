@@ -171,6 +171,10 @@ export class Stage {
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    // 通知所有 layer 同步尺寸（Line2 必需）
+    for (const layer of this.layers.values()) {
+      try { (layer as { onResize?: (w: number, h: number) => void }).onResize?.(w, h); } catch {}
+    }
   };
 
   /* ---------------- 数据注入（业务侧调用） ---------------- */

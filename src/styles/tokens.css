@@ -1,0 +1,64 @@
+/* SL-GIS Design Tokens · 与 docs/design/design-system.md §2-§4 同源 */
+:root {
+  /* === 基础色（背景层次）=== */
+  --well-deep: #030812;          /* 页面最底色（井深） */
+  --night-navy: #071525;         /* 面板背景 */
+  --surface-blue: #0C2340;       /* 面板浮起层 / 地图地面 */
+  --line-vein: rgba(0, 194, 255, .18);  /* 1px 边框 / 分隔线 */
+
+  /* === 强调色 === */
+  --flood-teal: #00C2FF;         /* 主强调：激活态、标题装饰 */
+  --spring-green: #00FFE0;       /* 数据高亮 / 正常态 */
+  --steppe-amber: #FFB454;       /* 检修 / 预警 / 草原暖色 */
+
+  /* === 状态语义色（全屏唯一映射）=== */
+  --status-normal: var(--spring-green);
+  --status-alarm: #FF5C5C;
+  --status-repair: var(--steppe-amber);
+  --status-stop: #6B7A8F;
+  --status-offline: #3A4A5E;
+
+  /* === 工程 A-D 分级色 === */
+  --grade-a: var(--spring-green);   /* 六边形 */
+  --grade-b: var(--spring-green);   /* 方形 */
+  --grade-c: var(--spring-green);   /* 圆 */
+  --grade-d: var(--spring-green);   /* 三角 */
+  /* A-D 状态色不依赖颜色，靠形状编码 */
+
+  /* === 监测点分色（按类型）=== */
+  --mon-pressure: #00C2FF;
+  --mon-flow: var(--spring-green);
+  --mon-quality: #7EE081;
+  --mon-level: #8FA8FF;
+
+  /* === 图表序列色（ECharts 6 系列）=== */
+  --chart-1: #00C2FF;
+  --chart-2: var(--spring-green);
+  --chart-3: #7EE081;
+  --chart-4: #FFB454;
+  --chart-5: #FF7A9E;
+  --chart-6: #8FA8FF;
+
+  /* === 文字 === */
+  --text: #E8F1F8;
+  --text-dim: #9DB2C6;
+
+  /* === 形状/网格 === */
+  --radius: 2px;
+  --grid: 8px;
+  --panel-pad: 20px;
+  --panel-gap: 12px;
+  --border-w: 1px;
+  --border-w-thick: 2px;
+
+  /* === 字体 === */
+  --num: 'Rajdhani', 'Noto Sans SC', system-ui, sans-serif;
+  --cn: 'Noto Sans SC', system-ui, sans-serif;
+}
+
+/* 全局基础 */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--well-deep); color: var(--text); font-family: var(--cn); }
+.num { font-family: var(--num); font-variant-numeric: tabular-nums; }
+button { font-family: inherit; }
+:focus-visible { outline: 2px solid var(--spring-green); outline-offset: 2px; }

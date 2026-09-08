@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.nx/
+.turbo/
+.cache/
+*.log
+.env
+.env.*
+.DS_Store
+public/models/*.glb
+public/geo/*.json

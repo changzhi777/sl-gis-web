@@ -11,7 +11,8 @@
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",
     "e2e:update": "playwright test --update-snapshots",
-    "health": "pnpm typecheck && pnpm build && echo '✓ health check passed'"
+    "health": "pnpm typecheck && pnpm build",
+    "typecheck:build": "pnpm typecheck && pnpm build"
   },
   "keywords": [
     "gis",

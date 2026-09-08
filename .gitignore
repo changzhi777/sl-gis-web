@@ -10,3 +10,4 @@ dist/
 public/models/*.glb
 public/geo/*.json
 _screenshot.mjs
+_*.mjs

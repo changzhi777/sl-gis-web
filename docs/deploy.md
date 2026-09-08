@@ -50,7 +50,11 @@
 
 ### 方式 A：脚本（用户执行）
 ```bash
-# 配置 COS 凭证（用户本地）
+# 1. 安装 coscmd（macOS PEP 668 阻挡，需 --break-system-packages）
+pip3 install --break-system-packages --user coscmd
+# 二进制自动装到 $HOME/Library/Python/3.14/bin/coscmd（脚本自动加 PATH）
+
+# 2. 配 COS 凭证
 export TENCENT_SECRET_ID=AKIDxxx
 export TENCENT_SECRET_KEY=xxx
 export TENCENT_APPID=1300000000
@@ -58,12 +62,10 @@ export TENCENT_BUCKET=sl-gis-static
 export TENCENT_REGION=ap-guangzhou
 export TENCENT_PREFIX=sl-gis/
 
-# 安装 tccli（如未装）
-pip install tccli
-
-# 跑部署
+# 3. 跑部署（支持 DRY_RUN=1 演练）
 cd sl-gis-web
-./scripts/deploy-cos.sh
+DRY_RUN=1 ./scripts/deploy-cos.sh   # 先演练（不连云）
+./scripts/deploy-cos.sh             # 真部署
 ```
 
 ### 方式 B：手动（coscmd / 控制台）

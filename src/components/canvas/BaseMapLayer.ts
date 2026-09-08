@@ -83,9 +83,9 @@ export class BaseMapLayer extends BaseLayer {
   /** 异步取 GeoJSON */
   private fetchGeo(): void {
     if (typeof window === 'undefined') return;
-    fetch('/geo/banner.json')
-      .then(r => r.json() as Promise<GeoJSON.FeatureCollection>)
-      .then(fc => this.buildFromGeoJSON(fc))
+    fetch(`${import.meta.env.BASE_URL}geo/banner.json`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((fc: GeoJSON.FeatureCollection) => this.buildFromGeoJSON(fc))
       .catch(err => {
         console.warn('[BaseMapLayer] banner.json fetch failed', err);
         // 即便失败也给一个空 bbox 让相机能起飞（不阻塞 Stage）

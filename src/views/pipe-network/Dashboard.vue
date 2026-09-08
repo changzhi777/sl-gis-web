@@ -205,6 +205,7 @@ onMounted(() => {
   Promise.resolve().then(() => stage?.setCityBBoxFromBase());
   setTimeout(() => stage?.setCityBBoxFromBase(), 200);
   setTimeout(() => stage?.setCityBBoxFromBase(), 800);
+  setTimeout(() => stage?.setCityBBoxFromBase(), 2000);  // 兜底：等 banner 异步加载完
 
   // 飞线（流量监测点 → 任一 A 级水厂工厂）
   const flowMonitors = mockData.monitors.filter((m) => m.type === 'flow');

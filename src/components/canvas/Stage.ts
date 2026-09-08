@@ -68,6 +68,7 @@ export class Stage {
   private controls!: OrbitControls;
   private clock = new THREE.Clock();
   private rafId = 0;
+  private resizeObserver?: ResizeObserver;
 
   /** 全部图层 — 名字 → BaseLayer 实例 */
   private layers = new Map<LayerName, BaseLayer>();
@@ -153,6 +154,15 @@ export class Stage {
     dom.addEventListener('pointermove', this.onPointerMove);
     dom.addEventListener('click', this.onPointerClick);
     window.addEventListener('resize', this.onResize);
+    // v-scale-screen 缩放不触发 window resize；用 ResizeObserver 监听容器
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.onResize());
+      this.resizeObserver.observe(this.container);
+    }
+    // 兜底：v-scale-screen 异步缩放完成前 container.clientWidth=0，3 次重设保险
+    setTimeout(() => this.onResize(), 100);
+    setTimeout(() => this.onResize(), 300);
+    setTimeout(() => this.onResize(), 800);
   }
 
   private onResize = (): void => {
@@ -241,14 +251,22 @@ export class Stage {
     const city = this.layers.get('City') as CityLayer | undefined;
     if (!base || !city) return;
     const bbox = base.getBBox();
-    if (bbox) {
-      city.setBBox({
-        minLon: bbox.minLon,
-        maxLon: bbox.maxLon,
-        minLat: bbox.minLat,
-        maxLat: bbox.maxLat,
-      });
-    }
+    if (!bbox) return;
+    city.setBBox({
+      minLon: bbox.minLon,
+      maxLon: bbox.maxLon,
+      minLat: bbox.minLat,
+      maxLat: bbox.maxLat,
+    });
+    // 🆕 同步飞相机：banner bbox 加载完后，相机对准中心
+    const span = Math.max(
+      bbox.maxLon - bbox.minLon,
+      bbox.maxLat - bbox.minLat
+    );
+    const altitude = Math.max(span * 80000, 200000);  // 苏尼特右旗 ~4° → 320km
+    this.camera.position.set(bbox.centerX, bbox.centerY, altitude);
+    this.controls.target.set(bbox.centerX, bbox.centerY, 0);
+    this.controls.update();
   }
 
   setCityDensity(density: 'low' | 'mid' | 'high'): void {

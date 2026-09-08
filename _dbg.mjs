@@ -1,0 +1,11 @@
+import { chromium } from '@playwright/test';
+const b = await chromium.launch();
+const ctx = await b.newContext({ viewport: { width: 1920, height: 1080 } });
+const p = await ctx.newPage();
+p.on('request', r => { if (r.url().includes('banner') || r.url().includes('geo')) console.log('REQ', r.url()); });
+p.on('response', r => { if (r.url().includes('banner') || r.url().includes('geo')) console.log('RESP', r.status(), r.url()); });
+p.on('console', m => console.log('LOG', m.type(), m.text().slice(0,150)));
+p.on('pageerror', e => console.log('PAGEERR', e.message));
+await p.goto('http://127.0.0.1:5180/sl-gis/dashboard', { waitUntil: 'networkidle', timeout: 15000 });
+await p.waitForTimeout(2500);
+await b.close();

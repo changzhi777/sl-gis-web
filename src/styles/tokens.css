@@ -52,8 +52,8 @@
   --border-w-thick: 2px;
 
   /* === 字体 === */
-  --num: 'Rajdhani', 'Noto Sans SC', system-ui, sans-serif;
-  --cn: 'Noto Sans SC', system-ui, sans-serif;
+  --num: 'Rajdhani', 'DIN Alternate', 'Helvetica Neue', system-ui, -apple-system, sans-serif;
+  --cn: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
 }
 
 /* 全局基础 */

@@ -3,6 +3,8 @@ main:
     - name: build-and-deploy
       imports:
         - https://cnb.cool/qingmu2026/sl-gis-secrets/-/blob/main/.cnb-env.yml
+      env:
+        TENCENT_APPID: "100050691448"
       runner:
         cpus: 4
       docker:

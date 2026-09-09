@@ -1,14 +1,4 @@
-# CNB 官方语法 · 触发：main push → 单流水线 3 阶段（同容器共享 dist/）
-# 密钥：仓库「设置 → 密钥」注入 SL-GIS-SECRET-ID / SL-GIS-SECRET-KEY / TENCENT_APPID
-main:
-  push:
-      - name: build-and-deploy
-            runner:
-                    cpus: 4
-                          docker:
-                                  image: node:20
-                                        stages:
-                                                - name: install
+main: {push: [{name: build-and-deploy, runner: {cpus: 4}, docker: {image: "node:20"}, stages: [{name: install, script: "corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm install --no-frozen-lockfile"}, {name: build, script: "pnpm run build && ls -lh dist/"}, {name: deploy-cos, script: "node scripts/cos-upload.mjs"}]}]}                                                - name: install
                                                           script: corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm install --no-frozen-lockfile
                                                                   - name: build
                                                                             script: pnpm run build && ls -lh dist/

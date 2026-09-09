@@ -50,6 +50,7 @@ declare global {
 }
 
 type LayerName =
+  | 'Plant'
   | 'Ground'
   | 'BaseMap'
   | 'Pipe'
@@ -58,8 +59,7 @@ type LayerName =
   | 'Alert'
   | 'FlyLine'
   | 'City'
-  | 'Model'
-  | 'Plant';
+  | 'Model';
 
 interface StageOptions {
   container: HTMLElement;
@@ -159,6 +159,7 @@ export class Stage {
     this.scene.add(dir);
 
     const ground = new GroundLayer();
+    const plant = new PlantLayer();
     const baseMap = new BaseMapLayer();
     const pipe = new PipeLayer();
     const project = new ProjectLayer();
@@ -167,7 +168,6 @@ export class Stage {
     const fly = new FlyLineLayer();
     const city = new CityLayer();
     const model = new ModelLayer();
-    const plant = new PlantLayer();
 
     // 通用 addLayer 封装
     const addLayer = (layer: BaseLayer) => {
@@ -179,6 +179,7 @@ export class Stage {
     };
 
     addLayer(ground);
+    addLayer(plant);
     addLayer(baseMap);
     addLayer(pipe);
     addLayer(project);

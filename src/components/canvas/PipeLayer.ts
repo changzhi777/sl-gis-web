@@ -20,11 +20,13 @@ interface FlowLevel {
   color: number;
   speed: number;
   z: number;
+  cps: number;   // cycles/sec（shader 相位速度）
+  size: number; // 粒子尺寸系数
 }
 const FLOW_LEVELS: Array<{ minDn: number; level: FlowLevel }> = [
-  { minDn: 200, level: { color: 0x00ffe0, speed: 12, z: 50 } }, // L1 干管
-  { minDn: 100, level: { color: 0x00c2ff, speed: 6, z: 35 } },  // L2 次管
-  { minDn: 0,    level: { color: 0x8fa8ff, speed: 3, z: 20 } }, // L3 支管
+  { minDn: 200, level: { color: 0x00ffe0, speed: 12, z: 50, cps: 2.4, size: 1.4 } }, // L1 干管 快·绿·大
+  { minDn: 100, level: { color: 0x00c2ff, speed: 6, z: 35, cps: 1.2, size: 1.0 } },  // L2 次管 中·青·中
+  { minDn: 0,    level: { color: 0x8fa8ff, speed: 3, z: 20, cps: 0.6, size: 0.75 } }, // L3 支管 慢·蓝·小
 ];
 
 function flowLevelOf(dn: number): FlowLevel {
@@ -41,34 +43,41 @@ function tubeRadiusOf(dn: number): number {
 }
 
 interface PipeBundle {
-  flyPoints: THREE.Points;
   tubeGeom: THREE.TubeGeometry | null;
-  geometry: THREE.BufferGeometry;     // fly geometry（动态重建）
-  points: THREE.Vector3[];            // CatmullRom 300 点
-  index: number;                      // RAF 沿曲线滑动的索引
-  num: number;                        // 切片长度
-  indexMax: number;
-  speed: number;                      // 三级速度（每帧步进）
   dimLine: THREE.Line;                // z=0 接地投影线
 }
 
-const FLOW_NUM = 30;        // 切片长度
 const FLOW_DIVISIONS = 300; // 曲线总等距点数
 
-/** 流光片元着色器（line_fragment.glsl 配方移植） */
-const FLOW_FRAGMENT = /* glsl */ `
-#ifdef OPAQUE
-diffuseColor.a = 1.0;
-#endif
 
-#ifdef USE_TRANSMISSION
-diffuseColor.a *= transmissionAlpha + 0.1;
-#endif
+const FLOW_VERT = /* glsl */ `
+  attribute float aT;      // 0-1 沿管位置（含相位偏移）
+  attribute float aCps;    // cycles/sec（三级速度）
+  attribute float aSize;   // 粒子尺寸
+  attribute vec3 aColor;   // 级别色
+  uniform float uTime;
+  varying vec3 vColor;
+  varying float vAlpha;
+  void main() {
+    float local = fract(aT - uTime * aCps);
+    float d = abs(local - 0.5);
+    float bright = exp(-d * d * 60.0);   // 亮带尖峰
+    vColor = aColor;
+    vAlpha = 0.18 + bright;              // 常亮底 + 流光峰
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = aSize * (400000.0 / -mv.z);
+    gl_Position = projectionMatrix * mv;
+  }
+`;
 
-// 流光中心亮边缘淡
-float r = distance(gl_PointCoord, vec2(0.5, 0.5));
-diffuseColor.a = diffuseColor.a * pow(1.0 - r / 0.5, 6.0);
-gl_FragColor = vec4(outgoingLight, diffuseColor.a);
+const FLOW_FRAG = /* glsl */ `
+  varying vec3 vColor;
+  varying float vAlpha;
+  void main() {
+    float r = distance(gl_PointCoord, vec2(0.5, 0.5));
+    float falloff = pow(1.0 - r / 0.5, 3.0);
+    gl_FragColor = vec4(vColor, vAlpha * falloff);
+  }
 `;
 
 export class PipeLayer extends BaseLayer {
@@ -76,26 +85,29 @@ export class PipeLayer extends BaseLayer {
   private group = new THREE.Group();
   private bundles: PipeBundle[] = [];
   private tubeMesh: THREE.Mesh | null = null;
+  private flowPoints: THREE.Points | null = null;
+  private flowMat: THREE.ShaderMaterial | null = null;
 
   override init(_renderer: THREE.WebGLRenderer, scene: THREE.Scene): void {
     this.group.name = 'PipeGroup';
     scene.add(this.group);
   }
 
-  override update(): void {
-    for (const b of this.bundles) {
-      if (b.index > b.indexMax) b.index = 0;
-      b.index += b.speed; // 三级速度
-      this.rebuildFlyPoints(b);
-    }
+  override update(dt: number): void {
+    // A 档优化：静态几何 + shader 相位流 — 每帧只更新一个 uniform
+    if (this.flowMat) this.flowMat.uniforms.uTime.value += dt;
   }
 
   override dispose(): void {
     for (const b of this.bundles) {
       b.dimLine.geometry.dispose();
       (b.dimLine.material as THREE.Material).dispose();
-      b.geometry.dispose();
-      (b.flyPoints.material as THREE.Material).dispose();
+    }
+    if (this.flowPoints) {
+      this.flowPoints.geometry.dispose();
+      (this.flowPoints.material as THREE.Material).dispose();
+      this.group.remove(this.flowPoints);
+      this.flowPoints = null;
     }
     this.bundles = [];
     if (this.tubeMesh) {
@@ -112,11 +124,14 @@ export class PipeLayer extends BaseLayer {
     // 清掉旧的
     for (const b of this.bundles) {
       this.group.remove(b.dimLine);
-      this.group.remove(b.flyPoints);
       b.dimLine.geometry.dispose();
       (b.dimLine.material as THREE.Material).dispose();
-      b.geometry.dispose();
-      (b.flyPoints.material as THREE.Material).dispose();
+    }
+    if (this.flowPoints) {
+      this.flowPoints.geometry.dispose();
+      (this.flowPoints.material as THREE.Material).dispose();
+      this.group.remove(this.flowPoints);
+      this.flowPoints = null;
     }
     this.bundles = [];
     if (this.tubeMesh) {
@@ -126,15 +141,59 @@ export class PipeLayer extends BaseLayer {
       this.tubeMesh = null;
     }
 
-    // ── 管壳：全部 TubeGeometry 合批成一个 Mesh ──
+    // ── 管壳 + 静态流光点：一次构建，shader 相位流动 ──
     const tubeGeoms: THREE.BufferGeometry[] = [];
+    const pos: number[] = [];
+    const aT: number[] = [];
+    const aCps: number[] = [];
+    const aSize: number[] = [];
+    const aColor: number[] = [];
+    const cTmp = new THREE.Color();
+
     for (const pipe of pipes) {
-      const bundle = this.buildOne(pipe);
-      if (!bundle) continue;
-      this.bundles.push(bundle);
-      this.group.add(bundle.dimLine);
-      this.group.add(bundle.flyPoints);
-      if (bundle.tubeGeom) tubeGeoms.push(bundle.tubeGeom);
+      const built = this.buildOne(pipe);
+      if (!built) continue;
+      this.bundles.push(built.bundle);
+      this.group.add(built.bundle.dimLine);
+      if (built?.bundle.tubeGeom) tubeGeoms.push(built.bundle.tubeGeom);
+
+      // 静态流光点：沿曲线 80 点，aT 编码位置+相位
+      const level = flowLevelOf(pipe.diameter);
+      const radius = tubeRadiusOf(pipe.diameter);
+      const N = 80;
+      const phase = Math.random();
+      cTmp.set(level.color);
+      for (let i = 0; i < N; i++) {
+        const pt = built.curvePoints[Math.floor((i / N) * built.curvePoints.length)];
+        pos.push(pt.x, pt.y, pt.z);
+        aT.push((i / N + phase) % 1);
+        aCps.push(level.cps);
+        aSize.push(Math.min(Math.max(2.2 * radius, 36), 176) * level.size);
+        aColor.push(cTmp.r, cTmp.g, cTmp.b);
+      }
+    }
+
+    if (pos.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('aT', new THREE.Float32BufferAttribute(aT, 1));
+      g.setAttribute('aCps', new THREE.Float32BufferAttribute(aCps, 1));
+      g.setAttribute('aSize', new THREE.Float32BufferAttribute(aSize, 1));
+      g.setAttribute('aColor', new THREE.Float32BufferAttribute(aColor, 3));
+      this.flowMat = new THREE.ShaderMaterial({
+        vertexShader: FLOW_VERT,
+        fragmentShader: FLOW_FRAG,
+        uniforms: { uTime: { value: 0 } },
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        blending: THREE.AdditiveBlending,
+        fog: false,
+      });
+      this.flowPoints = new THREE.Points(g, this.flowMat);
+      this.flowPoints.renderOrder = 3;
+      this.flowPoints.frustumCulled = false;
+      this.group.add(this.flowPoints);
     }
 
     if (tubeGeoms.length) {
@@ -157,31 +216,7 @@ export class PipeLayer extends BaseLayer {
     }
   }
 
-  /** 重建流光 BufferGeometry（沿曲线滑动 index 区间） */
-  private rebuildFlyPoints(b: PipeBundle): void {
-    const slice = b.points.slice(b.index, b.index + b.num);
-    if (slice.length < 2) return;
-    const curve2 = new THREE.CatmullRomCurve3(slice);
-    const dense = curve2.getSpacedPoints(100);
-    b.geometry.setFromPoints(dense);
-
-    // 顶点色（暗→亮→暗）
-    const half = Math.floor(dense.length / 2);
-    const colorArr = new Float32Array(dense.length * 3);
-    const colorDim = new THREE.Color(SCENE_PALETTE.pipeDim);
-    const colorFlow = new THREE.Color(SCENE_PALETTE.pipeFlow);
-    for (let i = 0; i < dense.length; i++) {
-      const t = i < half ? i / half : 1 - (i - half) / half;
-      const c = colorDim.clone().lerp(colorFlow, t);
-      colorArr[i * 3 + 0] = c.r;
-      colorArr[i * 3 + 1] = c.g;
-      colorArr[i * 3 + 2] = c.b;
-    }
-    b.geometry.setAttribute('color', new THREE.BufferAttribute(colorArr, 3));
-    b.geometry.attributes.color.needsUpdate = true;
-  }
-
-  private buildOne(pipe: PipeSegment): PipeBundle | null {
+  private buildOne(pipe: PipeSegment): { bundle: PipeBundle; curvePoints: THREE.Vector3[] } | null {
     const level = flowLevelOf(pipe.diameter);
     const radius = tubeRadiusOf(pipe.diameter);
 
@@ -217,63 +252,9 @@ export class PipeLayer extends BaseLayer {
     // ── 立体管壳 ──
     const tubeGeom = new THREE.TubeGeometry(curve, 24, radius, 6, false);
 
-    // ── 管内流光粒子 ──
-    const slice = points.slice(0, FLOW_NUM);
-    const curve2 = new THREE.CatmullRomCurve3(slice);
-    const dense = curve2.getSpacedPoints(100);
-
-    const flyGeom = new THREE.BufferGeometry();
-    flyGeom.setFromPoints(dense);
-
-    // percent 控 gl_PointSize
-    const percentArr = new Float32Array(dense.length);
-    const half = Math.floor(dense.length / 2);
-    for (let i = 0; i < dense.length; i++) {
-      const t = i < half ? i / half : 1 - (i - half) / half;
-      percentArr[i] = Math.pow(t, 0.2);
-    }
-    flyGeom.setAttribute('percent', new THREE.BufferAttribute(percentArr, 1));
-
-    // 粒子颜色 = 级别色（亮色），vertexColors 沿用暗→亮渐变底
-    const flyMat = new THREE.PointsMaterial({
-      size: Math.min(Math.max(2.2 * radius, 36), 176),
-      color: level.color,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.95,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      depthTest: true,
-    });
-    flyMat.onBeforeCompile = (shader) => {
-      shader.vertexShader = shader.vertexShader.replace(
-        'void main() {',
-        ['attribute float percent;', 'void main() {'].join('\n'),
-      );
-      shader.vertexShader = shader.vertexShader.replace(
-        'gl_PointSize = size;',
-        'gl_PointSize = percent * percent * size;',
-      );
-      // ⚠️ three 0.169 — 必须替换 opaque_fragment
-      shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <opaque_fragment>',
-        FLOW_FRAGMENT,
-      );
-    };
-
-    const flyPoints = new THREE.Points(flyGeom, flyMat);
-    flyPoints.renderOrder = 3;
-
     return {
-      dimLine,
-      flyPoints,
-      geometry: flyGeom,
-      points,
-      index: 0,
-      num: FLOW_NUM,
-      indexMax: points.length - FLOW_NUM,
-      speed: level.speed,
-      tubeGeom,
+      bundle: { dimLine, tubeGeom },
+      curvePoints: points,
     };
   }
 

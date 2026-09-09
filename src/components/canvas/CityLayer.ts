@@ -17,12 +17,6 @@ import { SUMU_ANCHORS } from '@/shared/sumu-anchors';
 
 export type CityDensity = 'low' | 'mid' | 'high';
 
-const DENSITY_GRID: Record<CityDensity, [number, number]> = {
-  low: [3, 4],
-  mid: [5, 7],
-  high: [8, 12],
-};
-
 interface CityBundle {
   group: THREE.Group;
   buildingsMesh: THREE.Mesh;
@@ -98,7 +92,6 @@ export class CityLayer extends BaseLayer {
       this.group.remove(this.bundle.group);
     }
 
-    const [gridX, gridY] = DENSITY_GRID[this.density];
     const bboxMin = lon2xy(this.bbox.minLon, this.bbox.minLat);
     const bboxMax = lon2xy(this.bbox.maxLon, this.bbox.maxLat);
     const minX = Math.min(bboxMin.x, bboxMax.x);
@@ -106,9 +99,10 @@ export class CityLayer extends BaseLayer {
     const minY = Math.min(bboxMin.y, bboxMax.y);
     const maxY = Math.max(bboxMin.y, bboxMax.y);
 
-    const cellW = (maxX - minX) / gridX;
-    const cellH = (maxY - minY) / gridY;
-    const baseSize = Math.min(cellW, cellH) * 0.55; // 建筑占地
+    const spanX = maxX - minX;
+    const spanY = maxY - minY;
+    const clusterRadius = Math.min(spanX, spanY) * 0.045;
+    const baseSize = clusterRadius * 0.22; // 建筑占地 = 簇半径的 22%
 
     const rng = mulberry32(42);
 
@@ -116,9 +110,6 @@ export class CityLayer extends BaseLayer {
     const highlightGeoms: THREE.BufferGeometry[] = [];
 
     // 苏木锚点聚簇：每锚点一簇建筑（高斯散布），旗驻地最大
-    const spanX = maxX - minX;
-    const spanY = maxY - minY;
-    const clusterRadius = Math.min(spanX, spanY) * 0.045; // 簇半径
 
     for (const anchor of SUMU_ANCHORS) {
       const ax = minX + anchor.fx * spanX;
@@ -136,8 +127,9 @@ export class CityLayer extends BaseLayer {
         const cx = ax + gauss() * clusterRadius * 0.5;
         const cy = ay + gauss() * clusterRadius * 0.5;
 
-        const w = baseSize * (0.7 + rng() * 0.6);
-        const d = baseSize * (0.7 + rng() * 0.6);
+        const sizeK = anchor.isSeat ? 1.3 : 1.0;
+        const w = baseSize * sizeK * (0.7 + rng() * 0.6);
+        const d = baseSize * sizeK * (0.7 + rng() * 0.6);
         // 旗驻地有高层， others 低层
         const hMax = anchor.isSeat ? 5.0 : 3.0;
         const h = w * (1.2 + rng() * hMax);

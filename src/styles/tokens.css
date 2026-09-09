@@ -77,3 +77,10 @@ button { font-family: inherit; }
   transform: translate(-50%, -100%);
   pointer-events: none;
 }
+
+/* 水厂名称牌（▣ 前缀 · 金边区分工程点牌） */
+.sl-gis-plant-tag {
+  border-color: rgba(255, 180, 84, 0.55) !important;
+  color: #FFD9A0 !important;
+  font-size: 12px !important;
+}

@@ -28,12 +28,17 @@
           />
         </div>
 
-        <!-- 地图右上：镇区建筑群控件 -->
+        <!-- 地图右上：镇区建筑群控件 + 一键复位视角 -->
         <div class="overlay city-slot">
           <CityToggle
             v-model:enabled="cityOn"
             v-model:density="cityDensity"
           />
+          <button
+            class="reset-view"
+            title="复位视角（回初始 25° 俯仰 + 旗县居中）"
+            @click="resetCamera"
+          >⌖ 复位视角</button>
         </div>
       </div>
     </template>
@@ -189,6 +194,11 @@ const pressureSeries = computed<number[]>(() => {
 const trendHeight = 110;
 const sparkHeight = 48;
 
+/** 一键复位视角：回初始 25° 俯仰 + 旗县居中 + 默认缩放（模板可调） */
+function resetCamera(): void {
+  stage?.setCityBBoxFromBase();
+}
+
 /* ---------- Stage 接线 ---------- */
 onMounted(() => {
   if (!stageRef.value) return;
@@ -338,5 +348,23 @@ function onToggleStatus(_status: Status, _visible: boolean) {
   flex: 1;
   min-height: 0;
   justify-content: center;
+}
+</style>
+
+<style scoped>
+.reset-view {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 5px 0;
+  font-size: 12px;
+  color: var(--spring-green, #00ffe0);
+  background: rgba(7, 21, 37, 0.85);
+  border: 1px solid rgba(0, 255, 224, 0.4);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.reset-view:hover {
+  background: rgba(0, 255, 224, 0.12);
 }
 </style>

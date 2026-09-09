@@ -22,6 +22,8 @@ import { AlertLayer } from './AlertLayer';
 import { FlyLineLayer } from './FlyLineLayer';
 import { CityLayer } from './CityLayer';
 import { ModelLayer } from './ModelLayer';
+import { GroundLayer } from './GroundLayer';
+import { PlantLayer } from './PlantLayer';
 import { pickAt, pickIds, type PickableEntry } from './hitTest';
 import { lon2xy } from './utils/lon2xy';
 import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
@@ -48,6 +50,7 @@ declare global {
 }
 
 type LayerName =
+  | 'Ground'
   | 'BaseMap'
   | 'Pipe'
   | 'Project'
@@ -55,7 +58,8 @@ type LayerName =
   | 'Alert'
   | 'FlyLine'
   | 'City'
-  | 'Model';
+  | 'Model'
+  | 'Plant';
 
 interface StageOptions {
   container: HTMLElement;
@@ -124,22 +128,37 @@ export class Stage {
   }
 
   private initControls(): void {
+    // 场景 z 朝上 — 相机 up 必须同向，polar 才是"俯仰角"
+    this.camera.up.set(0, 0, 1);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.target.set(0, 0, 0);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
+    // 俯仰 25°–75° 可调，初始 25°；平移禁用（旗县恒居中）
+    this.controls.minPolarAngle = (25 / 180) * Math.PI;
+    this.controls.maxPolarAngle = (75 / 180) * Math.PI;
+    this.controls.enablePan = false;
+    this.controls.minDistance = 80000;
+    this.controls.maxDistance = 800000;
     this.controls.update();
+  }
+
+  /** 一键复位：回初始 25° 俯仰 + 旗县居中 + 默认缩放 */
+  resetView(): void {
+    this.setCityBBoxFromBase();
   }
 
   private initLayers(): void {
     this.scene = new THREE.Scene();
+    this.scene.fog = new THREE.Fog(0x030812, 400000, 5000000);
 
     // 灯光：Lambert 材质无光即全黑（建筑/构筑物需要）
-    this.scene.add(new THREE.AmbientLight(0xbfdcff, 1.2));
+    this.scene.add(new THREE.AmbientLight(0xbfdcff, 1.0));
     const dir = new THREE.DirectionalLight(0xffffff, 1.6);
-    dir.position.set(-0.5, -0.8, 1.2).normalize(); // 高空斜射（z 朝上）
+    dir.position.set(-0.45, -0.6, 1.0).normalize(); // 西北上空斜射（UI/UX 规范 #2）
     this.scene.add(dir);
 
+    const ground = new GroundLayer();
     const baseMap = new BaseMapLayer();
     const pipe = new PipeLayer();
     const project = new ProjectLayer();
@@ -148,6 +167,7 @@ export class Stage {
     const fly = new FlyLineLayer();
     const city = new CityLayer();
     const model = new ModelLayer();
+    const plant = new PlantLayer();
 
     // 通用 addLayer 封装
     const addLayer = (layer: BaseLayer) => {
@@ -158,6 +178,7 @@ export class Stage {
       if (o3d) this.scene.add(o3d);
     };
 
+    addLayer(ground);
     addLayer(baseMap);
     addLayer(pipe);
     addLayer(project);
@@ -166,6 +187,7 @@ export class Stage {
     addLayer(fly);
     addLayer(city);
     addLayer(model);
+    addLayer(plant);
   }
 
   private bindDom(): void {
@@ -209,9 +231,11 @@ export class Stage {
       this.pickEntries.push(...proj.getPickables());
       proj.getPickables().forEach(p => this.pickMeshes.push(p.mesh));
     }
-    // 同时喂入 ModelLayer（A 级）
+    // 同时喂入 ModelLayer（A 级）/ PlantLayer（A 级水厂）
     const model = this.layers.get('Model') as ModelLayer | undefined;
     model?.setProjects(projects);
+    const plant = this.layers.get('Plant') as PlantLayer | undefined;
+    plant?.setPlants(projects);
   }
 
   setPipes(pipes: PipeSegment[]): void {
@@ -290,9 +314,15 @@ export class Stage {
     const b = lon2xy(bbox.maxLon, bbox.maxLat);
     const spanMercator = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
     const altitude = Math.max(spanMercator * 2.8, 400000);
-    this.camera.position.set(bbox.centerX, bbox.centerY, altitude);
+    // 初始俯仰 25°：相机从旗县南侧上空斜视（北边界远、南边界近，有纵深）
+    const tilt = (25 / 180) * Math.PI;
+    const southOff = altitude * Math.sin(tilt);
+    const height = altitude * Math.cos(tilt);
+    this.camera.position.set(bbox.centerX, bbox.centerY - southOff, height);
     this.controls.target.set(bbox.centerX, bbox.centerY, 0);
     this.controls.update();
+    const g = this.layers.get('Ground') as GroundLayer | undefined;
+    g?.buildForBBox({ minLon: bbox.minLon, maxLon: bbox.maxLon, minLat: bbox.minLat, maxLat: bbox.maxLat });
     return true;
   }
 

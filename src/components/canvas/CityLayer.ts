@@ -13,6 +13,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { BaseLayer } from './BaseLayer';
 import { SCENE_PALETTE } from './palette';
 import { lon2xy } from './utils/lon2xy';
+import { SUMU_ANCHORS } from '@/shared/sumu-anchors';
 
 export type CityDensity = 'low' | 'mid' | 'high';
 
@@ -114,24 +115,37 @@ export class CityLayer extends BaseLayer {
     const boxGeoms: THREE.BufferGeometry[] = [];
     const highlightGeoms: THREE.BufferGeometry[] = [];
 
-    for (let ix = 0; ix < gridX; ix++) {
-      for (let iy = 0; iy < gridY; iy++) {
-        // 22% 留空率（模拟牧区稀疏）
-        if (rng() < 0.22) continue;
+    // 苏木锚点聚簇：每锚点一簇建筑（高斯散布），旗驻地最大
+    const spanX = maxX - minX;
+    const spanY = maxY - minY;
+    const clusterRadius = Math.min(spanX, spanY) * 0.045; // 簇半径
 
-        // 单元中心 + 抖动
-        const cx = minX + (ix + 0.5) * cellW + (rng() - 0.5) * cellW * 0.3;
-        const cy = minY + (iy + 0.5) * cellH + (rng() - 0.5) * cellH * 0.3;
+    for (const anchor of SUMU_ANCHORS) {
+      const ax = minX + anchor.fx * spanX;
+      const ay = minY + anchor.fy * spanY;
+      const count = Math.round((this.density === 'low' ? 6 : this.density === 'mid' ? 10 : 14) * anchor.weight);
+
+      // Box-Muller 高斯抖动
+      const gauss = () => {
+        const u = Math.max(rng(), 1e-9);
+        const v = rng();
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+      };
+
+      for (let i = 0; i < count; i++) {
+        const cx = ax + gauss() * clusterRadius * 0.5;
+        const cy = ay + gauss() * clusterRadius * 0.5;
 
         const w = baseSize * (0.7 + rng() * 0.6);
         const d = baseSize * (0.7 + rng() * 0.6);
-        const h = w * (1.5 + rng() * 2.8); // 高度 1.5-4.3 倍
+        // 旗驻地有高层， others 低层
+        const hMax = anchor.isSeat ? 5.0 : 3.0;
+        const h = w * (1.2 + rng() * hMax);
 
         const geom = new THREE.BoxGeometry(w, d, h);
-        geom.translate(cx, cy, h / 2); // 底部贴 z=0
+        geom.translate(cx, cy, h / 2);
         boxGeoms.push(geom);
 
-        // 14% 重点建筑：屋顶发光（再做一个浅色 box 同位置）
         if (rng() < 0.14) {
           const topGeom = new THREE.BoxGeometry(w * 0.9, d * 0.9, 80);
           topGeom.translate(cx, cy, h + 40);

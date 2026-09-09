@@ -24,6 +24,7 @@ import { CityLayer } from './CityLayer';
 import { ModelLayer } from './ModelLayer';
 import { pickAt, pickIds, type PickableEntry } from './hitTest';
 import { lon2xy } from './utils/lon2xy';
+import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import type { Project, PipeSegment, MonitorPoint, EmergencyEvent } from '@/shared/types';
 
 /* 内联最小 GeoJSON 类型（避免依赖 @types/geojson） */
@@ -66,6 +67,7 @@ export class Stage {
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
+  private labelRenderer!: CSS2DRenderer;
   private controls!: OrbitControls;
   private clock = new THREE.Clock();
   private rafId = 0;
@@ -100,6 +102,15 @@ export class Stage {
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
     this.renderer.setClearColor(new THREE.Color('#030812'), 1);
     this.container.appendChild(this.renderer.domElement);
+    // CSS2D 标签层（覆盖在 canvas 上，pointerEvents none 不挡交互）
+    this.labelRenderer = new CSS2DRenderer();
+    this.labelRenderer.setSize(this.container.clientWidth, this.container.clientHeight);
+    const labelDom = this.labelRenderer.domElement;
+    labelDom.style.position = 'absolute';
+    labelDom.style.top = '0';
+    labelDom.style.left = '0';
+    labelDom.style.pointerEvents = 'none';
+    this.container.appendChild(labelDom);
     this.renderer.domElement.style.display = 'block';
   }
 
@@ -177,6 +188,7 @@ export class Stage {
     const w = this.container.clientWidth;
     const h = this.container.clientHeight;
     this.renderer.setSize(w, h);
+    this.labelRenderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     // 通知所有 layer 同步尺寸（Line2 必需）
@@ -388,6 +400,7 @@ export class Stage {
     }
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
+    this.labelRenderer.render(this.scene, this.camera);
     this.rafId = requestAnimationFrame(this.loop);
   }
 

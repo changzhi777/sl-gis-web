@@ -6,6 +6,7 @@
  * - Raycaster 点选 → emit 'layer:click' 携带 projectId
  */
 import * as THREE from 'three';
+import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import type { Project, Status } from '@/shared/types';
 import { STATUS_COLOR, GRADE_SHAPE } from '@/shared/types';
 import { BaseLayer } from './BaseLayer';
@@ -17,6 +18,7 @@ const SPRITE_SIZE = 9000;
 interface ProjectEntry {
   sprite: THREE.Sprite;
   baseScale: number;
+  label?: CSS2DObject;
   projectId: string;
   status: Status;
 }
@@ -54,6 +56,7 @@ export class ProjectLayer extends BaseLayer {
     for (const e of this.entries) {
       (e.sprite.material as THREE.SpriteMaterial).map?.dispose();
       (e.sprite.material as THREE.SpriteMaterial).dispose();
+      if (e.label) e.label.element.remove();
     }
     this.entries = [];
     if (this.group.parent) this.group.parent.remove(this.group);
@@ -86,6 +89,17 @@ export class ProjectLayer extends BaseLayer {
       if (p.grade === 'D') (sprite.material as THREE.SpriteMaterial).opacity = 0.55;
       sprite.userData = { projectId: p.id };
       sprite.name = `ProjectSprite:${p.id}`;
+      // A 级挂 CSS2D 名称牌（design-system §11 融合标注语言）
+      if (p.grade === 'A') {
+        const div = document.createElement('div');
+        div.className = 'sl-gis-tag3d';
+        // 短标签：取编号段（如 "赛罕塔拉镇 · A-11 集中式供水工程" → "A-11"）避免重叠
+        const idm = p.name.match(/([ABC]-\d+)/);
+        div.textContent = idm ? idm[1] : p.name.slice(0, 8);
+        const label = new CSS2DObject(div);
+        label.position.set(0, 0.55, 0); // 相对 sprite 中心上方
+        sprite.add(label);
+      }
       this.group.add(sprite);
       this.entries.push({ sprite, baseScale, projectId: p.id, status: p.status });
     }

@@ -62,3 +62,18 @@ html, body { margin: 0; padding: 0; background: var(--well-deep); color: var(--t
 .num { font-family: var(--num); font-variant-numeric: tabular-nums; }
 button { font-family: inherit; }
 :focus-visible { outline: 2px solid var(--spring-green); outline-offset: 2px; }
+
+/* A 级工程 CSS2D 名称牌（design-system §11 融合标注） */
+.sl-gis-tag3d {
+  color: #E8F1F8;
+  font-family: var(--cn);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 3px 10px;
+  background: rgba(3, 8, 18, 0.88);
+  border: 1px solid rgba(0, 194, 255, 0.45);
+  border-radius: 2px;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+}

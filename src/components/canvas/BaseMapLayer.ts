@@ -155,6 +155,9 @@ export class BaseMapLayer extends BaseLayer {
 
     this.lines = new LineSegments2(geom, mat);
     this.lines.name = 'BoundaryLines';
+    // ★ LineSegmentsGeometry 的包围球按 2 顶点基几何计算（不含实例化偏移），
+    //   相机远距离时会被视锥剔除 — 必须关闭
+    this.lines.frustumCulled = false;
     this.group.add(this.lines);
 
     const centerLon = (minLon + maxLon) / 2;

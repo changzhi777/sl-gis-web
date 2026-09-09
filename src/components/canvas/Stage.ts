@@ -23,6 +23,7 @@ import { FlyLineLayer } from './FlyLineLayer';
 import { CityLayer } from './CityLayer';
 import { ModelLayer } from './ModelLayer';
 import { pickAt, pickIds, type PickableEntry } from './hitTest';
+import { lon2xy } from './utils/lon2xy';
 import type { Project, PipeSegment, MonitorPoint, EmergencyEvent } from '@/shared/types';
 
 /* 内联最小 GeoJSON 类型（避免依赖 @types/geojson） */
@@ -105,7 +106,8 @@ export class Stage {
   private initCamera(): void {
     const w = this.container.clientWidth;
     const h = this.container.clientHeight;
-    this.camera = new THREE.PerspectiveCamera(30, w / h, 1, 30000);
+    // far 必须覆盖墨卡托场景尺度：相机飞行高度 ~100 万单位 + 场景对角线
+    this.camera = new THREE.PerspectiveCamera(30, w / h, 1, 8000000);
     this.camera.position.set(13524797, 3662134, 1220);
     this.camera.lookAt(0, 0, 0);
   }
@@ -120,6 +122,12 @@ export class Stage {
 
   private initLayers(): void {
     this.scene = new THREE.Scene();
+
+    // 灯光：Lambert 材质无光即全黑（建筑/构筑物需要）
+    this.scene.add(new THREE.AmbientLight(0xbfdcff, 1.2));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.6);
+    dir.position.set(-0.5, -0.8, 1.2).normalize(); // 高空斜射（z 朝上）
+    this.scene.add(dir);
 
     const baseMap = new BaseMapLayer();
     const pipe = new PipeLayer();
@@ -250,27 +258,30 @@ export class Stage {
     fly?.setData(monitors, factory);
   }
 
-  setCityBBoxFromBase(): void {
+  /** 尝试飞相机到旗县 bbox；成功返回 true（数据未就绪返回 false，调用方应轮询） */
+  setCityBBoxFromBase(): boolean {
     const base = this.layers.get('BaseMap') as BaseMapLayer | undefined;
     const city = this.layers.get('City') as CityLayer | undefined;
-    if (!base || !city) return;
+    if (!base || !city) return false;
     const bbox = base.getBBox();
-    if (!bbox) return;
+    if (!bbox) return false;
     city.setBBox({
       minLon: bbox.minLon,
       maxLon: bbox.maxLon,
       minLat: bbox.minLat,
       maxLat: bbox.maxLat,
     });
-    // 🆕 同步飞相机：banner bbox 加载完后，相机对准中心
-    const span = Math.max(
-      bbox.maxLon - bbox.minLon,
-      bbox.maxLat - bbox.minLat
-    );
-    const altitude = Math.max(span * 80000, 200000);  // 苏尼特右旗 ~4° → 320km
+    // 相机对准旗县中心：高度按墨卡托跨度算
+    // 视场：PerspectiveCamera fov=30°(垂直)，可见宽 ≈ 2·h·tan15°·aspect ≈ 0.7·h
+    // 要让旗县全境入镜且留边：h = 2.8 × 墨卡托跨度
+    const a = lon2xy(bbox.minLon, bbox.minLat);
+    const b = lon2xy(bbox.maxLon, bbox.maxLat);
+    const spanMercator = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    const altitude = Math.max(spanMercator * 2.8, 400000);
     this.camera.position.set(bbox.centerX, bbox.centerY, altitude);
     this.controls.target.set(bbox.centerX, bbox.centerY, 0);
     this.controls.update();
+    return true;
   }
 
   setCityDensity(density: 'low' | 'mid' | 'high'): void {
@@ -425,6 +436,8 @@ export function createStage(container: HTMLElement): Stage {
     _stage.dispose();
   }
   _stage = new Stage({ container });
+  // 调试钩子：浏览器控制台可用 window.__stage 检查场景内部状态
+  (window as unknown as Record<string, unknown>).__stage = _stage;
   return _stage;
 }
 

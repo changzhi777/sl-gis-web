@@ -202,10 +202,13 @@ onMounted(() => {
 
   // 城市场景需要 base bbox（Track A 在 BaseMap init 时异步拿 banner.json）
   // 安排一个微任务重试，确保首次拿到 bbox
-  Promise.resolve().then(() => stage?.setCityBBoxFromBase());
-  setTimeout(() => stage?.setCityBBoxFromBase(), 200);
-  setTimeout(() => stage?.setCityBBoxFromBase(), 800);
-  setTimeout(() => stage?.setCityBBoxFromBase(), 2000);  // 兜底：等 banner 异步加载完
+  // banner 异步加载完成后飞相机 — 轮询直到成功（fetch 时序不确定，固定延时不可靠）
+  const flyTimer = setInterval(() => {
+    if (stage?.setCityBBoxFromBase()) {
+      clearInterval(flyTimer);
+    }
+  }, 400);
+  setTimeout(() => clearInterval(flyTimer), 15000); // 15s 兜底停表
 
   // 飞线（流量监测点 → 任一 A 级水厂工厂）
   const flowMonitors = mockData.monitors.filter((m) => m.type === 'flow');

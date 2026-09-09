@@ -1,72 +1,14 @@
- main: {push: [{name: build-and-deploy, runner: {cpus: 4}, docker: {image: "node:20"}, stages: [{name: install, script: "corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm install --no-frozen-lockfile"}, {name: build, script: "pnpm run build && ls -lh dist/"}, {name: deploy-cos, script: "node scripts/cos-upload.mjs"}]}]}                                                - name: install
-                                                          script: corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm install --no-frozen-lockfile
-                                                                  - name: build
-                                                                            script: pnpm run build && ls -lh dist/
-                                                                                    - name: deploy-cos
-                                                                                              script: node scripts/cos-upload.mjs
-                                                                                              # CNB 官方语法 · 触发：main push → 单流水线 3 阶段（同容器共享 dist/）
-# 密钥：仓库「设置 → 密钥」注入 SL-GIS-SECRET-ID / SL-GIS-SECRET-KEY / TENCENT_APPID
 main:
   push:
-      - name: build-and-deploy
-            runner:
-                    cpus: 4
-                          docker:
-                                  image: node:20
-                                        stages:
-                                                - name: install
-                                                          script: corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm install --no-frozen-lockfile
-                                                                  - name: build
-                                                                            script: pnpm run build && ls -lh dist/
-                                                                                    - name: deploy-cos
-                                                                                              script: node scripts/cos-upload.mjs
-                                                                                                - name: deploy
-    cpu: "1"
-    memory: "1Gi"
-
-# 全局环境（CNB 部署组密钥）
-env:
-  TENCENT_REGION: "ap-guangzhou"
-  TENCENT_BUCKET: "sl-gis-static"
-  TENCENT_PREFIX: "sl-gis/"
-  TENCENT_APPID: "100050691448"
-
-# 步骤 1：构建（Node 20）
-step:
-  name: "build"
-  image: "node:20-slim"
-  caches: ["node"]
-  script:
-    - "corepack enable"
-    - "corepack prepare pnpm@10.33.0 --activate"
-    - "pnpm install --frozen-lockfile"
-    - "pnpm run typecheck"            # 类型检查
-    - "pnpm run build"                 # vue-tsc + vite build → dist/
-    - "ls -lh dist/ | head"            # 验证产物
-  artifacts: "dist/"                    # 产物传下一阶段
-
-# 步骤 2：部署到 COS（用 CNB 镜像里装 coscmd）
-step:
-  name: "deploy-to-cos"
-  image: "python:3.12-slim"
-  needs: ["build"]
-  script:
-    - "pip install --no-cache-dir coscmd==1.9.0.6"
-    - "coscmd config -a ${SL-GIS-SECRET-ID} -s ${SL-GIS-SECRET-KEY} -b ${TENCENT_BUCKET}-${TENCENT_APPID} -r ${TENCENT_REGION} -u ${TENCENT_APPID}"
-    - "coscmd upload -r --delete --sync -H 'Cache-Control: public, max-age=3600' -H 'Content-Type: application/javascript' dist/ /${TENCENT_PREFIX}"
-    - "coscmd upload --sync -H 'Content-Type: application/json' -H 'Cache-Control: public, max-age=86400' dist/geo/banner.json /${TENCENT_PREFIX}geo/banner.json"
-    - "echo '✓ 部署完成'"
-  env: {}
-
-# 步骤 3（可选）：部署到您的香港服务器作 fallback
-# 取消下面整段注释可启用
-# step:
-#   name: "deploy-to-hk-server"
-#   image: "alpine:3.19"
-#   needs: ["build"]
-#   script:
-#     - "apk add --no-cache openssh-client rsync"
-#     - "mkdir -p ~/.ssh && echo "${SL-GIS-SSH-KEY}" > ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa"
-#     - "rsync -avz --delete -e 'ssh -o StrictHostKeyChecking=no -p ${SL-GIS-SSH-PORT:-22}' dist/ ${SL-GIS-SSH-USER}@${SL-GIS-SSH-HOST}:${SL-GIS-SSH-PATH:-/var/www/sl-gis/}"
-#     - "ssh -o StrictHostKeyChecking=no ${SL-GIS-SSH-USER}@${SL-GIS-SSH-HOST} 'sudo nginx -t && sudo systemctl reload nginx'"
-#     - "echo '✓ 香港服务器同步完成'"
+    - name: build-and-deploy
+      runner:
+        cpus: 4
+      docker:
+        image: node:20
+      stages:
+        - name: install
+          script: corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm install --no-frozen-lockfile
+        - name: build
+          script: pnpm run build && ls -lh dist/
+        - name: deploy-cos
+          script: node scripts/cos-upload.mjs

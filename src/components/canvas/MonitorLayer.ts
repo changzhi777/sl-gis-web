@@ -87,7 +87,7 @@ export class MonitorLayer extends BaseLayer {
         transparent: true,
         depthWrite: false,
       });
-      const geom = new THREE.SphereGeometry(500, 16, 16);
+      const geom = new THREE.SphereGeometry(4500, 16, 16);
       const mesh = new THREE.Mesh(geom, mat);
       mesh.position.set(xy.x, xy.y, 0);
       mesh.userData = { monitorId: p.id };

@@ -12,8 +12,11 @@ import { BaseLayer } from './BaseLayer';
 import { lon2xy } from './utils/lon2xy';
 import type { PickableEntry } from './hitTest';
 
+const SPRITE_SIZE = 9000;
+
 interface ProjectEntry {
   sprite: THREE.Sprite;
+  baseScale: number;
   projectId: string;
   status: Status;
 }
@@ -34,7 +37,7 @@ export class ProjectLayer extends BaseLayer {
     this.t += dt;
     // 呼吸/脉冲：scale 微动
     for (const e of this.entries) {
-      const base = 800;
+      const base = e.baseScale;
       let amp = 0;
       if (e.status === 'normal') {
         amp = Math.sin(this.t * 2.0) * 0.08;
@@ -76,11 +79,15 @@ export class ProjectLayer extends BaseLayer {
       });
       const sprite = new THREE.Sprite(mat);
       sprite.position.set(xy.x, xy.y, 0);
-      sprite.scale.set(800, 800, 1);
+      // D 级量大（1800+），缩小 + 半透明避免糊成一片；A/B/C 正常尺寸
+      const size = p.grade === 'D' ? SPRITE_SIZE * 0.35 : SPRITE_SIZE;
+      sprite.scale.set(size, size, 1);
+      const baseScale = size;
+      if (p.grade === 'D') (sprite.material as THREE.SpriteMaterial).opacity = 0.55;
       sprite.userData = { projectId: p.id };
       sprite.name = `ProjectSprite:${p.id}`;
       this.group.add(sprite);
-      this.entries.push({ sprite, projectId: p.id, status: p.status });
+      this.entries.push({ sprite, baseScale, projectId: p.id, status: p.status });
     }
   }
 

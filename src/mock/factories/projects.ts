@@ -22,7 +22,7 @@ function mulberry32(seed: number): () => number {
 }
 
 // 苏尼特右旗旗中心（来自 banner.json bbox 中心估算）
-export const FLAG_CENTER: [number, number] = [114.0, 42.7];
+export const FLAG_CENTER: [number, number] = [113.45, 42.72]; // banner bbox 真中心
 
 // 苏木乡镇名（锡盟苏尼特右旗行政区划）
 const SU_MU_LIST = [
@@ -51,7 +51,7 @@ const STATUS_DIST: Status[] = (() => {
   return arr;
 })();
 
-function jitterCoord(rand: () => number, center: [number, number], span = 0.4): [number, number] {
+function jitterCoord(rand: () => number, center: [number, number], span = 0.6): [number, number] {
   const lon = center[0] + (rand() - 0.5) * 2 * span;
   const lat = center[1] + (rand() - 0.5) * 2 * span;
   return [round(lon, 6), round(lat, 6)];
@@ -135,7 +135,7 @@ export function genProjects(): Project[] {
   for (let i = 1; i <= 12; i++) {
     const grade: Grade = 'A';
     const status = statusPool[i - 1];
-    const coord = jitterCoord(rand, FLAG_CENTER, 0.4);
+    const coord = jitterCoord(rand, FLAG_CENTER, 0.6);
     result.push({
       id: `PRJ-A-${String(i).padStart(2, '0')}`,
       name: genName(grade, i, rand),
@@ -152,7 +152,7 @@ export function genProjects(): Project[] {
   for (let i = 1; i <= 8; i++) {
     const grade: Grade = 'B';
     const status = statusPool[12 + i - 1];
-    const coord = jitterCoord(rand, FLAG_CENTER, 0.4);
+    const coord = jitterCoord(rand, FLAG_CENTER, 0.6);
     result.push({
       id: `PRJ-B-${String(i).padStart(2, '0')}`,
       name: genName(grade, i, rand),
@@ -169,7 +169,7 @@ export function genProjects(): Project[] {
   for (let i = 1; i <= 26; i++) {
     const grade: Grade = 'C';
     const status = statusPool[20 + i - 1];
-    const coord = jitterCoord(rand, FLAG_CENTER, 0.4);
+    const coord = jitterCoord(rand, FLAG_CENTER, 0.6);
     result.push({
       id: `PRJ-C-${String(i).padStart(2, '0')}`,
       name: genName(grade, i, rand),
@@ -187,7 +187,7 @@ export function genProjects(): Project[] {
     const grade: Grade = 'D';
     // D 级分散供水状态分布更保守（多为 normal，少量 offline）
     const status: Status = rand() < 0.05 ? 'offline' : 'normal';
-    const coord = jitterCoord(rand, FLAG_CENTER, 0.4);
+    const coord = jitterCoord(rand, FLAG_CENTER, 0.6);
     result.push({
       id: `PRJ-D-${String(i).padStart(4, '0')}`,
       name: genName(grade, i, rand),

@@ -1,6 +1,7 @@
 main:
   push:
     - name: build-and-deploy
+      imports: https://cnb.cool/qingmu2026/sl-gis-secrets/-/blob/main/.cnb-env.yml
       runner:
         cpus: 4
       docker:

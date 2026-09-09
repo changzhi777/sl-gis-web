@@ -1,4 +1,5 @@
 # SL-GIS 源码（sl-gis-web 单仓）
+<!-- ci-trigger -->
 
 Vue3 + Three.js WebGL 旗县农村供水管理平台大屏。
 

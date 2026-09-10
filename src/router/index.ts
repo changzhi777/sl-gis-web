@@ -11,6 +11,10 @@ const router = createRouter({
     { path: '/archives/:id', name: 'archive-detail', component: () => import('@/views/archives/Detail.vue') },
     { path: '/water-quality', name: 'water-quality', component: () => import('@/views/water-quality/Dashboard.vue') },
     { path: '/patrol', name: 'patrol', component: () => import('@/views/patrol/Dashboard.vue') },
+    { path: '/billing', name: 'billing', component: () => import('@/views/billing/Dashboard.vue') },
+    { path: '/public-service', name: 'public-service', component: () => import('@/views/public-service/Dashboard.vue') },
+    { path: '/assessment', name: 'assessment', component: () => import('@/views/assessment/Dashboard.vue') },
+    { path: '/system', name: 'system', component: () => import('@/views/system/Dashboard.vue') },
   ],
 });
 

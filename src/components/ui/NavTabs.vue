@@ -19,6 +19,10 @@ const tabs = [
   { path: '/archives', label: '工程档案' },
   { path: '/water-quality', label: '水质管理' },
   { path: '/patrol', label: '巡检工单' },
+  { path: '/billing', label: '收费服务' },
+  { path: '/public-service', label: '公众服务' },
+  { path: '/assessment', label: '统计考核' },
+  { path: '/system', label: '系统管理' },
 ];
 const isActive = (path: string) => route.path === path;
 </script>

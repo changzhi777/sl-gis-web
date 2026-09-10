@@ -29,7 +29,7 @@
             class="grow-14"
             :resources="resources"
             :highlight-id="highlightId"
-            @select="onSelectResource"
+            @select="onResourceSelect"
           />
           <Panel class="grow-10" title="响应统计" sub="近 7 日">
             <div class="resp-row">
@@ -60,86 +60,21 @@
         <section class="mid">
           <Panel class="mid-map" hero title="事件地图" :sub="mapSub">
             <template #extra>
-              <button class="btn-reset" type="button" @click="resetView">⌖ 复位视角</button>
+              <button class="btn-reset" type="button" @click="mapRef?.reset()">⌖ 复位视角</button>
             </template>
             <div class="emap-host">
-              <svg
-                class="emap"
-                :viewBox="`0 0 ${MAP_W} ${mapH}`"
-                preserveAspectRatio="xMidYMid meet"
-                role="img"
-                aria-label="应急事件分布图"
-              >
-                <g class="viewport" :style="viewportStyle">
-                  <!-- 旗界 + 乡镇界（真实 GeoJSON，fetch 失败时仅缺省边界） -->
-                  <path
-                    v-for="(d, i) in bannerPaths"
-                    :key="`b${i}`"
-                    class="banner-outline"
-                    :d="d"
-                  />
-                  <path
-                    v-for="(d, i) in townPaths"
-                    :key="`t${i}`"
-                    class="town-outline"
-                    :d="d"
-                  />
-
-                  <!-- 苏木乡镇名称 -->
-                  <text v-for="s in sumuPoints" :key="s.name" class="sumu-label" :x="s.x" :y="s.y">
-                    {{ s.name }}
-                  </text>
-
-                  <!-- 调度连线（资源驻点 → 事件点） -->
-                  <line
-                    v-for="(lk, i) in mapLinks"
-                    :key="`l${i}`"
-                    class="dispatch"
-                    :x1="lk.x1"
-                    :y1="lk.y1"
-                    :x2="lk.x2"
-                    :y2="lk.y2"
-                  />
-
-                  <!-- 应急资源驻点（绿色方块，可高亮） -->
-                  <g
-                    v-for="m in mapResources"
-                    :key="m.r.id"
-                    class="res"
-                    :class="{ active: m.r.id === highlightId }"
-                    :transform="`translate(${m.x} ${m.y})`"
-                    role="button"
-                    tabindex="0"
-                    :aria-label="`应急资源：${m.r.name}，驻点 ${m.r.depotName}`"
-                    @click.stop="onSelectResource(m.r)"
-                    @keydown.enter.prevent="onSelectResource(m.r)"
-                  >
-                    <circle class="res-halo" r="11" />
-                    <rect x="-7" y="-7" width="14" height="14" rx="1.5" />
-                    <text x="0" y="0.5">{{ m.r.code }}</text>
-                    <text class="res-name" x="0" y="17">{{ m.r.name }}</text>
-                  </g>
-
-                  <!-- 告警事件脉冲标记 -->
-                  <g
-                    v-for="e in mapEvents"
-                    :key="e.event.id"
-                    class="evt"
-                    :class="[toneClass(e.event.level), { sel: e.event.id === selected?.id }]"
-                    :transform="`translate(${e.x} ${e.y})`"
-                    role="button"
-                    tabindex="0"
-                    :aria-label="`事件 ${e.event.id}：${TYPE_LABEL[e.event.type]}，${e.event.level}`"
-                    @click.stop="selectEvent(e.event)"
-                    @keydown.enter.prevent="selectEvent(e.event)"
-                  >
-                    <circle class="pulse" r="9" />
-                    <circle class="halo" r="7" />
-                    <circle class="dot" r="4" />
-                    <title>{{ e.event.id }} · {{ TYPE_LABEL[e.event.type] }} · {{ e.event.level }} · {{ e.event.status }}</title>
-                  </g>
-                </g>
-              </svg>
+              <MapCanvas
+                ref="mapRef"
+                :projects="liveProjects"
+                :monitors="liveMonitors"
+                :pipes="[]"
+                :alerts="liveAlerts"
+                :selected-event-id="selected?.id ?? null"
+                :markers="mapMarkers"
+                :links="mapLinkCoords"
+                @alert-click="selectEvent"
+                @marker-click="onMarkerClick"
+              />
 
               <!-- 图例 -->
               <div class="emap-legend" aria-hidden="true">
@@ -219,9 +154,9 @@ import EventTimeline from './EventTimeline.vue';
 import ImpactAnalysis from './ImpactAnalysis.vue';
 import { mockData } from '@mock/index';
 import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
-import { mapAlert, unpackItems } from '@shared/backend';
-import type { EmergencyEvent } from '@shared/types';
-import { SUMU_CENTERS } from '@shared/sumu-anchors';
+import { mapAlert, mapProject, mapMonitor, unpackItems } from '@shared/backend';
+import MapCanvas from '@/components/map/MapCanvas.vue';
+import type { EmergencyEvent, MonitorPoint, Project } from '@shared/types';
 
 /* ================= 数据源 ================= */
 /** 实时告警池（alert 频道置顶追加 · 初始 = mock 基线） */
@@ -236,7 +171,7 @@ async function hydrateAlerts(): Promise<void> {
   const pending = liveAlerts.value.filter((a) => !stock.has(a.id) && !INITIAL_MOCK_IDS.has(a.id));
   liveAlerts.value = [...pending, ...items.map(mapAlert)].slice(0, 15);
 }
-const projectCoord = new Map(mockData.projects.map((p) => [p.id, p.coord]));
+const projectCoord = computed(() => new Map(liveProjects.value.map((p) => [p.id, p.coord as [number, number]])));
 
 const unsignedCount = computed(() => liveAlerts.value.filter((a) => a.status === '未签收').length);
 const handlingCount = computed(() =>
@@ -281,100 +216,6 @@ const selected = ref<EmergencyEvent | null>(
 );
 const highlightId = ref<string | null>(null);
 
-function onSelectResource(r: EmergencyResource): void {
-  const next = highlightId.value === r.id ? null : r.id;
-  highlightId.value = next;
-  if (next) {
-    const p = proj(r.depot[0], r.depot[1]);
-    focusPt.value = p;
-  }
-}
-
-function selectEvent(a: EmergencyEvent): void {
-  selected.value = a;
-  const coord = a.projectId ? projectCoord.get(a.projectId) : undefined;
-  focusPt.value = coord ? proj(coord[0], coord[1]) : null;
-}
-
-/* ================= SVG 地图（真实 GeoJSON 投影） ================= */
-const MAP_W = 1000;
-const LAT0 = 42.8;
-const COS0 = Math.cos((LAT0 * Math.PI) / 180);
-
-/** bbox：sumu-anchors 同源兜底值，banner.json 加载后按实测重算 */
-const bbox = ref({ minLon: 111.15, maxLon: 114.55, minLat: 42.05, maxLat: 43.6 });
-const kDeg = computed(
-  () => MAP_W / Math.max(1e-6, (bbox.value.maxLon - bbox.value.minLon) * COS0),
-);
-const mapH = computed(() =>
-  Math.round((bbox.value.maxLat - bbox.value.minLat) * kDeg.value),
-);
-
-interface Pt {
-  x: number;
-  y: number;
-}
-function proj(lon: number, lat: number): Pt {
-  const k = kDeg.value;
-  return { x: (lon - bbox.value.minLon) * k * COS0, y: (bbox.value.maxLat - lat) * k };
-}
-
-/* GeoJSON 最小类型（公开 6.6KB / 3.7KB，DataV GeoAtlas） */
-interface GeoFeature {
-  geometry: { type: string; coordinates: unknown } | null;
-}
-interface GeoFc {
-  type: string;
-  features: GeoFeature[];
-}
-type Ring = [number, number][];
-
-function ringsOf(geom: { type: string; coordinates: unknown }): Ring[] {
-  if (geom.type === 'Polygon') return geom.coordinates as Ring[];
-  if (geom.type === 'MultiPolygon') return (geom.coordinates as Ring[][]).flat();
-  return [];
-}
-function ringToD(ring: Ring): string {
-  if (!ring.length) return '';
-  const seg = ring.map(([lon, lat]) => {
-    const p = proj(lon, lat);
-    return `${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
-  });
-  return `M${seg.join('L')}Z`;
-}
-function featurePaths(fc: GeoFc): string[] {
-  return fc.features.flatMap((f) =>
-    f.geometry ? ringsOf(f.geometry).map(ringToD).filter(Boolean) : [],
-  );
-}
-function bboxOf(fc: GeoFc): typeof bbox.value {
-  let minLon = Infinity;
-  let maxLon = -Infinity;
-  let minLat = Infinity;
-  let maxLat = -Infinity;
-  for (const f of fc.features) {
-    if (!f.geometry) continue;
-    for (const ring of ringsOf(f.geometry)) {
-      for (const [lon, lat] of ring) {
-        if (lon < minLon) minLon = lon;
-        if (lon > maxLon) maxLon = lon;
-        if (lat < minLat) minLat = lat;
-        if (lat > maxLat) maxLat = lat;
-      }
-    }
-  }
-  return { minLon, maxLon, minLat, maxLat };
-}
-
-async function fetchGeo(url: string): Promise<GeoFc> {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`geo ${r.status}`);
-  return (await r.json()) as GeoFc;
-}
-
-const bannerPaths = ref<string[]>([]);
-const townPaths = ref<string[]>([]);
-
 const offs: Array<() => void> = [];
 
 onMounted(async () => {
@@ -385,19 +226,8 @@ onMounted(async () => {
   }));
   void hydrateAlerts();
 
-  try {
-    const fc = await fetchGeo(`${import.meta.env.BASE_URL}geo/banner.json`);
-    bbox.value = bboxOf(fc);
-    bannerPaths.value = featurePaths(fc);
-  } catch {
-    /* 边界缺省：兜底 bbox 继续渲染点位 */
-  }
-  try {
-    const fc = await fetchGeo(`${import.meta.env.BASE_URL}geo/townships.json`);
-    townPaths.value = featurePaths(fc);
-  } catch {
-    /* 乡镇界缺省可接受 */
-  }
+  void hydrateProjects();
+  void hydrateMonitors();
 });
 
 onBeforeUnmount(() => {
@@ -405,59 +235,58 @@ onBeforeUnmount(() => {
   offs.forEach((off) => off());
 });
 
-/* 点位投影（computed 依赖 bbox，边界加载后自动重投影） */
-interface MapEvent {
-  event: EmergencyEvent;
-  x: number;
-  y: number;
+/* ================= MapCanvas 接线（投影/边界/聚焦由组件内聚） ================= */
+const mapRef = ref<InstanceType<typeof MapCanvas> | null>(null);
+
+/** 后端水合：工程/监测点（choropleth 在线率聚合用） */
+const liveProjects = ref<Project[]>(mockData.projects);
+const liveMonitors = ref<MonitorPoint[]>(mockData.monitors);
+async function hydrateProjects(): Promise<void> {
+  const items = unpackItems(await apiFetch('/api/projects'));
+  if (!items?.length) return;
+  liveProjects.value = items.map(mapProject);
 }
-const mapEvents = computed<MapEvent[]>(() =>
-  liveAlerts.value.flatMap((a): MapEvent[] => {
-    const coord = a.projectId ? projectCoord.get(a.projectId) : undefined;
-    if (!coord) return [];
-    const p = proj(coord[0], coord[1]);
-    return [{ event: a, x: p.x, y: p.y }];
-  }),
-);
-
-interface MapResource {
-  r: EmergencyResource;
-  x: number;
-  y: number;
+async function hydrateMonitors(): Promise<void> {
+  const items = unpackItems(await apiFetch('/api/monitors'));
+  if (!items?.length) return;
+  liveMonitors.value = items.map(mapMonitor);
 }
-const mapResources = computed<MapResource[]>(() =>
-  resources.map((r) => {
-    const p = proj(r.depot[0], r.depot[1]);
-    return { r, x: p.x, y: p.y };
-  }),
+
+/** 应急资源 → MapCanvas 自定义标记 */
+const mapMarkers = computed(() =>
+  resources.map((r) => ({ id: r.id, lon: r.depot[0], lat: r.depot[1], code: r.code, name: r.name })),
 );
 
-const sumuPoints = computed(() =>
-  SUMU_CENTERS.map((c) => ({ name: c.name, ...proj(c.center[0], c.center[1]) })),
-);
-
-const mapLinks = computed(() =>
-  dispatchLinks.value.flatMap((l): Array<{ x1: number; y1: number; x2: number; y2: number }> => {
-    const ev = mapEvents.value.find((e) => e.event.id === l.eventId);
+/** 调度关系 → 坐标连线（资源驻点 → 事件关联工程） */
+const mapLinkCoords = computed(() =>
+  dispatchLinks.value.flatMap((l) => {
     const res = resources.find((r) => r.id === l.resourceId);
-    if (!ev || !res) return [];
-    const p = proj(res.depot[0], res.depot[1]);
-    return [{ x1: p.x, y1: p.y, x2: ev.x, y2: ev.y }];
+    const ev = liveAlerts.value.find((a) => a.id === l.eventId);
+    const evCoord = ev?.projectId ? projectCoord.value.get(ev.projectId) : undefined;
+    if (!res || !evCoord) return [];
+    return [{
+      id: `${l.resourceId}-${l.eventId}`,
+      from: [res.depot[0], res.depot[1]] as [number, number],
+      to: evCoord,
+    }];
   }),
 );
 
-/* 视角聚焦（transform 平移缩放，CSS 过渡 = 飞行动画） */
-const focusPt = ref<Pt | null>(null);
-const viewportStyle = computed(() => {
-  if (!focusPt.value) return undefined;
-  const s = 1.9;
-  const { x, y } = focusPt.value;
-  return {
-    transform: `translate(${(MAP_W / 2 - x * s).toFixed(1)}px, ${(mapH.value / 2 - y * s).toFixed(1)}px) scale(${s})`,
-  };
-});
-function resetView(): void {
-  focusPt.value = null;
+function selectEvent(a: EmergencyEvent): void {
+  selected.value = a;
+  const coord = a.projectId ? projectCoord.value.get(a.projectId) : undefined;
+  if (coord) mapRef.value?.focus(coord[0], coord[1]);
+}
+
+function onMarkerClick(id: string): void {
+  const r = resources.find((x) => x.id === id);
+  if (!r) return;
+  highlightId.value = highlightId.value === id ? null : id;
+  if (highlightId.value) mapRef.value?.focus(r.depot[0], r.depot[1]);
+}
+
+function onResourceSelect(r: EmergencyResource): void {
+  onMarkerClick(r.id);
 }
 
 const mapSub = computed(
@@ -618,7 +447,7 @@ function togglePlan(i: number): void {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 400px 1fr 400px;
+  grid-template-columns: minmax(300px, 5fr) minmax(0, 14fr) minmax(300px, 5fr);
   gap: var(--panel-gap);
   padding: var(--panel-gap);
 }

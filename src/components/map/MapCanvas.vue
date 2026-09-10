@@ -135,7 +135,7 @@
           v-for="e in alertView"
           :key="e.e.id"
           class="evt"
-          :class="e.tone"
+          :class="[e.tone, { sel: e.e.id === props.selectedEventId }]"
           :transform="`translate(${e.x} ${e.y})`"
           role="button"
           tabindex="0"
@@ -147,6 +147,36 @@
           <circle class="halo" r="6" />
           <circle class="dot" r="3.5" />
           <title>{{ e.e.id }} · {{ e.e.level }} · {{ e.e.status }}</title>
+        </g>
+
+        <!-- f2) 自定义连线（调度线 · dash 流动） -->
+        <line
+          v-for="lk in linkView"
+          :key="lk.id"
+          class="map-dispatch"
+          :x1="lk.x1"
+          :y1="lk.y1"
+          :x2="lk.x2"
+          :y2="lk.y2"
+        />
+
+        <!-- f3) 自定义标记（应急资源驻点 · 方框 + 编码 + 名称） -->
+        <g
+          v-for="m in markerView"
+          :key="m.id"
+          class="map-marker"
+          :transform="`translate(${m.x} ${m.y})`"
+          role="button"
+          tabindex="0"
+          :aria-label="`标记：${m.name}`"
+          @click.stop="emit('marker-click', m.id)"
+          @keydown.enter.prevent="emit('marker-click', m.id)"
+        >
+          <circle class="marker-halo" r="11" />
+          <rect x="-7" y="-7" width="14" height="14" rx="1.5" />
+          <text class="marker-code" x="0" y="0.5">{{ m.code }}</text>
+          <text class="marker-name" x="0" y="17">{{ m.name }}</text>
+          <title>{{ m.name }}</title>
         </g>
 
         <!-- g) 旗界扫光：外沿亮色短 dash 线性循环（入场期暂停，introDone 后 running） -->
@@ -191,12 +221,32 @@ const props = defineProps<{
   pipes: PipeSegment[];
   alerts: EmergencyEvent[];
   selectedProjectId?: string | null;
+  /** 选中事件（脉冲 halo 增强 · 应急页联动） */
+  selectedEventId?: string | null;
+  /** 自定义标记（应急资源驻点等） */
+  markers?: MapMarker[];
+  /** 自定义连线（资源→事件调度线等） */
+  links?: MapLink[];
 }>();
+
+export interface MapMarker {
+  id: string;
+  lon: number;
+  lat: number;
+  code: string;
+  name: string;
+}
+export interface MapLink {
+  id: string;
+  from: [number, number];
+  to: [number, number];
+}
 
 const emit = defineEmits<{
   'project-click': [project: Project];
   'alert-click': [event: EmergencyEvent];
   'focus-end': [];
+  'marker-click': [id: string];
 }>();
 
 /* ================= 投影 + GeoJSON 边界 ================= */
@@ -366,6 +416,21 @@ const alertView = computed<AlertView[]>(() =>
         tone: e.level === '重大' ? 'lv-major' : e.level === '较大' ? 'lv-mid' : 'lv-minor',
       },
     ];
+  }),
+);
+
+/* ================= f2/f3) 自定义标记与连线（应急资源/调度线等） ================= */
+const markerView = computed(() =>
+  (props.markers ?? []).flatMap((m) => {
+    const pt = proj(m.lon, m.lat);
+    return [{ ...m, x: pt.x, y: pt.y }];
+  }),
+);
+const linkView = computed(() =>
+  (props.links ?? []).flatMap((lk) => {
+    const a = proj(lk.from[0], lk.from[1]);
+    const b = proj(lk.to[0], lk.to[1]);
+    return [{ id: lk.id, x1: a.x, y1: a.y, x2: b.x, y2: b.y }];
   }),
 );
 
@@ -737,6 +802,54 @@ watch(labelSpecs, async () => {
   stroke-width: 2;
   opacity: 1;
 }
+.evt.sel .halo {
+  stroke-width: 2;
+  opacity: 1;
+}
+
+/* ===== f2) 自定义连线（调度线 · dash 流动） ===== */
+.map-dispatch {
+  stroke: rgba(0, 255, 224, 0.55);
+  stroke-width: 1.2;
+  stroke-dasharray: 6 5;
+  animation: mc-dispatch 1.2s linear infinite;
+  pointer-events: none;
+}
+@keyframes mc-dispatch {
+  to { stroke-dashoffset: -11; }
+}
+
+/* ===== f3) 自定义标记（应急资源驻点） ===== */
+.map-marker {
+  cursor: pointer;
+  color: var(--spring-green);
+}
+.map-marker rect {
+  fill: var(--surface-blue);
+  stroke: currentColor;
+  stroke-width: 1.3;
+  transition: fill 0.16s ease;
+}
+.map-marker:hover rect {
+  fill: rgba(0, 255, 224, 0.2);
+}
+.map-marker text {
+  fill: currentColor;
+  font-size: 9px;
+  font-family: var(--cn);
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+.map-marker .marker-name {
+  font-size: 8.5px;
+  fill: rgba(0, 255, 224, 0.75);
+}
+.map-marker .marker-halo {
+  fill: none;
+  stroke: currentColor;
+  opacity: 0;
+}
 
 /* ===== g) 旗界扫光（唯一 gated 循环动画） ===== */
 .sweep {
@@ -842,5 +955,6 @@ watch(labelSpecs, async () => {
   .viewport { transition: none; }
   .sweep { display: none; }
   .evt .pulse { animation: none; opacity: 0.22; }
+  .map-dispatch { animation: none; }
 }
 </style>

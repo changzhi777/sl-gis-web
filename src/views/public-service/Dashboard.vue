@@ -264,7 +264,7 @@ const starRows = computed(() =>
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 400px 1fr 400px;
+  grid-template-columns: minmax(300px, 5fr) minmax(0, 14fr) minmax(300px, 5fr);
   gap: var(--panel-gap);
   padding: var(--panel-gap);
 }

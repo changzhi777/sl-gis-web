@@ -96,7 +96,7 @@
 
         <!-- d) 工程点：A 六边形 / B 方形 / C 圆 / D 三角 · 状态色覆盖 · 点击上抛 -->
         <g
-          v-for="(pj, i) in projectView"
+          v-for="pj in projectView"
           :key="pj.p.id"
           class="pj"
           :class="[`st-${pj.p.status}`, { sel: pj.p.id === selectedProjectId }]"
@@ -107,7 +107,7 @@
           @click.stop="emit('project-click', pj.p)"
           @keydown.enter.prevent="emit('project-click', pj.p)"
         >
-          <g class="pj-in" :style="{ '--i': Math.min(i, 24) }">
+          <g class="pj-in" :style="{ '--i': pj.depth }">
             <circle class="pj-halo" r="12" />
             <polygon v-if="pj.shape === 'hex'" class="shape" :points="HEX_PTS" />
             <rect v-else-if="pj.shape === 'square'" class="shape" x="-5" y="-5" width="10" height="10" rx="1" />
@@ -202,7 +202,10 @@
         class="mc-tag"
         :class="{ plant: l.plant, sel: l.sel }"
         :style="{ left: `${l.left}px`, top: `${l.top}px` }"
-      >{{ l.text }}</div>
+      >
+        <span class="mc-tag-text">{{ l.text }}</span>
+        <span v-if="l.value" class="mc-tag-val num">{{ l.value }}</span>
+      </div>
     </div>
   </div>
 </template>
@@ -321,7 +324,7 @@ interface PipeView {
 }
 const gradeAIds = computed(() => new Set(props.projects.filter((p) => p.grade === 'A').map((p) => p.id)));
 const pipeView = computed<PipeView[]>(() =>
-  props.pipes.map((pipe, i) => {
+  props.pipes.map((pipe) => {
     const a = proj(pipe.start[0], pipe.start[1]);
     const b = proj(pipe.end[0], pipe.end[1]);
     const dx = b.x - a.x;
@@ -337,7 +340,7 @@ const pipeView = computed<PipeView[]>(() =>
       d: `M${a.x.toFixed(1)} ${a.y.toFixed(1)}L${b.x.toFixed(1)} ${b.y.toFixed(1)}`,
       len: +len.toFixed(1),
       w,
-      idx: Math.min(i, 24),
+      idx: topoDepthByProject.value.get(pipe.projectId) ?? 0,
       active: pipe.projectId === props.selectedProjectId,
       endArrow: gradeAIds.value.has(pipe.projectId),
       midArrow: pipe.diameter >= 200,
@@ -367,13 +370,51 @@ interface ProjectView {
   x: number;
   y: number;
   shape: 'hex' | 'square' | 'circle' | 'triangle';
+  depth: number;
 }
 const projectView = computed<ProjectView[]>(() =>
   props.projects.map((p) => {
     const pt = proj(p.coord[0], p.coord[1]);
-    return { p, x: pt.x, y: pt.y, shape: GRADE_SHAPE[p.grade] };
+    return { p, x: pt.x, y: pt.y, shape: GRADE_SHAPE[p.grade], depth: topoDepthByProject.value.get(p.id) ?? 0 };
   }),
 );
+
+/* ================= d2) 供水拓扑深度（入场叙事：水从水厂流向全网） ================= */
+const coordKeyOf = (c: [number, number]) => `${c[0].toFixed(5)},${c[1].toFixed(5)}`;
+const topoMaxDepth = ref(0);
+const topoDepthByProject = computed(() => {
+  const depth = new Map<string, number>();
+  const byCoord = new Map(props.projects.map((p) => [coordKeyOf(p.coord), p]));
+  const adj = new Map<string, string[]>(); // from 工程坐标 → 管段
+  for (const pipe of props.pipes) {
+    const k = coordKeyOf(pipe.start);
+    if (!adj.has(k)) adj.set(k, []);
+    adj.get(k)!.push(pipe.id);
+  }
+  let frontier: Project[] = props.projects.filter((p) => p.grade === 'A');
+  frontier.forEach((p) => depth.set(p.id, 0));
+  const pipeDepth = new Map<string, number>();
+  let d = 0;
+  while (frontier.length && d < 8) {
+    const next: Project[] = [];
+    for (const cur of frontier) {
+      for (const pid of adj.get(coordKeyOf(cur.coord)) ?? []) {
+        if (pipeDepth.has(pid)) continue;
+        pipeDepth.set(pid, d);
+        const pipe = props.pipes.find((x) => x.id === pid);
+        const downstream = pipe ? byCoord.get(coordKeyOf(pipe.end)) : undefined;
+        if (downstream && !depth.has(downstream.id)) {
+          depth.set(downstream.id, d + 1);
+          next.push(downstream);
+        }
+      }
+    }
+    frontier = next;
+    d++;
+  }
+  topoMaxDepth.value = d;
+  return depth;
+});
 
 /* ================= e) 监测点 ================= */
 interface MonitorView {
@@ -510,20 +551,39 @@ interface LabelSpec {
   sel: boolean;
   x: number;
   y: number;
+  /** 实时监测值徽标（该工程首个监测点） */
+  value?: string;
 }
-const labelSpecs = computed<LabelSpec[]>(() => [
-  // D 级供水点数据量近千（mock 1888），标牌仅保留 A/B/C 工程 + 当前选中（防叠字/淹没地图）
-  ...projectView.value
-    .filter((pj) => pj.p.grade !== 'D' || pj.p.id === props.selectedProjectId)
-    .map((pj) => ({
-      key: `p-${pj.p.id}`,
-      text: pj.p.name,
-      plant: pj.p.grade === 'A' && /水厂|供水站/.test(pj.p.name),
-      sel: pj.p.id === props.selectedProjectId,
-      x: pj.x,
-      y: pj.y,
-    })),
-  ...alertView.value.map((a) => ({
+const MON_UNIT: Record<MonitorPoint['type'], string> = {
+  pressure: 'MPa',
+  flow: 'm³/h',
+  quality: 'NTU',
+  level: 'm',
+};
+const labelSpecs = computed<LabelSpec[]>(() => {
+  // 标牌总量预算 ≤10：A→B→C 优先截断（projectView 生成序即 A→D），告警/选中恒显
+  const pjAll = projectView.value.filter(
+    (pj) => pj.p.grade !== 'D' || pj.p.id === props.selectedProjectId,
+  );
+  const alertCount = alertView.value.length;
+  const budget = Math.max(3, 10 - alertCount);
+  let pjLabels = pjAll;
+  if (pjLabels.length + alertCount > 10) pjLabels = pjLabels.slice(0, budget);
+  return [
+  ...pjLabels
+    .map((pj) => {
+      const mon = props.monitors.find((m) => m.projectId === pj.p.id);
+      return {
+        key: `p-${pj.p.id}`,
+        text: pj.p.name,
+        plant: pj.p.grade === 'A' && /水厂|供水站/.test(pj.p.name),
+        sel: pj.p.id === props.selectedProjectId,
+        x: pj.x,
+        y: pj.y,
+        value: mon ? `${mon.value} ${MON_UNIT[mon.type]}` : undefined,
+      };
+    }),
+    ...alertView.value.map((a) => ({
     key: `a-${a.e.id}`,
     text: `${TYPE_LABEL[a.e.type]} · ${a.e.level}`,
     plant: false,
@@ -531,7 +591,8 @@ const labelSpecs = computed<LabelSpec[]>(() => [
     x: a.x,
     y: a.y,
   })),
-]);
+  ];
+});
 
 /** 8 槽位：左上/右上 × 长短 × 再左右偏移（屏幕 px，相对锚点） */
 const SLOTS = [
@@ -550,6 +611,7 @@ interface LabelItem {
   text: string;
   plant: boolean;
   sel: boolean;
+  value?: string;
   left: number;
   top: number;
   leader: string;
@@ -590,6 +652,7 @@ function syncLabels(): void {
         text: s.text,
         plant: s.plant,
         sel: s.sel,
+        value: s.value,
         left: barEnd,
         top: sy,
         leader: `M${anchor.x.toFixed(1)} ${anchor.y.toFixed(1)}L${sx.toFixed(1)} ${sy.toFixed(
@@ -605,7 +668,7 @@ let ro: ResizeObserver | null = null;
 
 onMounted(() => {
   void load();
-  if (!reduced) introTimer = setTimeout(() => { introActive.value = false; }, 2800);
+  if (!reduced) introTimer = setTimeout(() => { introActive.value = false; }, 1800 + (topoMaxDepth.value + 1) * 600 + 400);
   ro = new ResizeObserver(() => syncLabels());
   if (rootEl.value) ro.observe(rootEl.value);
   void nextTick(syncLabels);
@@ -882,7 +945,7 @@ watch(labelSpecs, async () => {
 }
 .intro-run .pj-in {
   animation: mc-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-  animation-delay: calc(1.2s + var(--i) * 50ms);
+  animation-delay: calc(1.2s + var(--i) * 0.6s);
   transform-box: fill-box;
   transform-origin: center;
 }
@@ -891,7 +954,7 @@ watch(labelSpecs, async () => {
   stroke-dasharray: var(--len);
   stroke-dashoffset: var(--len);
   animation: mc-draw 0.6s ease-out both;
-  animation-delay: calc(1.8s + var(--i) * 15ms);
+  animation-delay: calc(1.8s + var(--i) * 0.6s);
 }
 @keyframes mc-draw {
   to { stroke-dashoffset: 0; }
@@ -933,6 +996,9 @@ watch(labelSpecs, async () => {
 .mc-tag {
   position: absolute;
   transform: translate(-50%, -100%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 3px 10px;
   font-size: 13px;
   line-height: 1.3;
@@ -941,6 +1007,16 @@ watch(labelSpecs, async () => {
   background: rgba(3, 8, 18, 0.85);
   border: 1px solid var(--line-vein);
   border-radius: var(--radius);
+}
+/* 实时监测值徽标 */
+.mc-tag-val {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--spring-green);
+  background: rgba(0, 255, 224, 0.08);
+  border: 1px solid rgba(0, 255, 224, 0.35);
+  border-radius: 2px;
 }
 .mc-tag.plant {
   border-color: var(--steppe-amber);

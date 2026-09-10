@@ -1,7 +1,7 @@
 <!--
   AppShell.vue — 全局弹性布局壳（T1 轨道）
   · 根：flex 横向，100vh 铺满，min-width 1366px 兜底横滚
-  · 左：AppSidebar（分组导航，可折叠）｜右：主区（AppTopbar 56px + router-view）
+  · 主区全宽（AppTopbar 56px + router-view）· 菜单收进顶栏下拉（v8.1）
   · onMounted 启动全局实时引擎（realtime 模块级单例，_running 防重入；
     页面内的 start 调用幂等无害）——顶栏告警灯需要全局引擎
   · contentResizeTick：侧栏折叠 / 窗口 resize 后 +150ms（等 CSS 过渡结束）自增，
@@ -9,7 +9,6 @@
 -->
 <template>
   <div class="shell">
-    <AppSidebar @collapsed-change="onSidebarSettled" />
     <div class="main">
       <AppTopbar />
       <main class="content">
@@ -21,7 +20,6 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, provide, ref } from 'vue';
-import AppSidebar from '@ui/AppSidebar.vue';
 import AppTopbar from '@ui/AppTopbar.vue';
 import { realtime } from '@/composables/realtime';
 
@@ -38,10 +36,6 @@ function bumpTick(): void {
   }, 150);
 }
 
-/** 侧栏折叠切换结束（AppSidebar 已等过 200ms 过渡） */
-function onSidebarSettled(): void {
-  bumpTick();
-}
 function onWindowResize(): void {
   bumpTick();
 }

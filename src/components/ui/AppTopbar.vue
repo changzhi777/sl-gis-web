@@ -13,7 +13,29 @@
       </select>
     </div>
 
-    <span class="page-title">{{ pageTitle }}</span>
+    <!-- 页面菜单：下拉分组（v8.1 侧栏 → 顶栏下拉） -->
+    <div class="page-menu" ref="menuRoot">
+      <button class="page-trigger" type="button" @click.stop="menuOpen = !menuOpen" :aria-expanded="menuOpen">
+        <span class="page-title">{{ pageTitle }}</span>
+        <span class="caret" aria-hidden="true">{{ menuOpen ? '▴' : '▾' }}</span>
+      </button>
+      <div v-if="menuOpen" class="menu-panel">
+        <div v-for="g in MENU_GROUPS" :key="g.title" class="menu-group">
+          <div class="menu-gtitle">{{ g.title }}</div>
+          <button
+            v-for="m in g.items"
+            :key="m.path"
+            type="button"
+            class="menu-item"
+            :class="{ active: isActive(m.path) }"
+            @click="go(m.path)"
+          >
+            <svg class="mi" viewBox="0 0 16 16" aria-hidden="true"><path :d="m.icon" /></svg>
+            <span>{{ m.label }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div class="search" role="search">
       <input
@@ -54,6 +76,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { apiFetch, onRealtime } from '@/composables/realtime';
 import { unpackItems } from '@shared/backend';
 import { useMapFocusStore } from '@stores/mapFocus';
+import { MENU_GROUPS } from '@ui/appMenu';
 import type { Project } from '@shared/types';
 
 /* ---------- 旗县切换（搬 TopBar.vue 口径：本地视觉状态，1 期不落库） ---------- */
@@ -62,10 +85,25 @@ const banner = ref(BANNERS[0]);
 
 /* ---------- 当前页名：meta.title 优先，缺省回退路由 path ---------- */
 const route = useRoute();
+const router = useRouter();
+const menuRoot = ref<HTMLElement | null>(null);
+const menuOpen = ref(false);
 const pageTitle = computed(() => {
   const t = route.meta.title;
   return typeof t === 'string' && t ? t : route.path;
 });
+function isActive(path: string): boolean {
+  return route.path === path || (path === '/archives' && route.path.startsWith('/archives'));
+}
+function go(path: string): void {
+  menuOpen.value = false;
+  if (route.path !== path) router.push(path);
+}
+function onDocClick(e: MouseEvent): void {
+  if (menuOpen.value && menuRoot.value && !menuRoot.value.contains(e.target as Node)) {
+    menuOpen.value = false;
+  }
+}
 
 /* ---------- 时钟 HH:mm:ss 每秒 ---------- */
 const clock = ref('');
@@ -81,7 +119,6 @@ const alarmCount = ref(0);
 let offAlert: (() => void) | null = null;
 
 /* ---------- 全局搜索：工程名/编码前缀匹配 → 跳一张图定位 ---------- */
-const router = useRouter();
 const focusStore = useMapFocusStore();
 const query = ref('');
 const openList = ref(false);
@@ -111,6 +148,7 @@ function onPick(p?: Project): void {
 }
 
 onMounted(async () => {
+  document.addEventListener('click', onDocClick);
   // 搜索数据源（一次性缓存）
   const projItems = unpackItems(await apiFetch('/api/projects'));
   if (projItems) projects.value = projItems.map((p) => ({
@@ -140,6 +178,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick);
   if (clockTimer) clearInterval(clockTimer);
   offAlert?.();
 });
@@ -255,6 +294,71 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.page-menu { position: relative; }
+.page-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: transparent;
+  border: var(--border-w) solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.page-trigger:hover { border-color: var(--line-vein); }
+.page-trigger .page-title { color: var(--text); overflow: visible; }
+.caret { font-size: 10px; color: var(--text-dim); }
+.menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  gap: 18px;
+  padding: 14px 16px;
+  background: rgba(3, 8, 18, 0.96);
+  border: var(--border-w) solid var(--line-vein);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.menu-group { min-width: 110px; }
+.menu-gtitle {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  opacity: 0.6;
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line-vein);
+  white-space: nowrap;
+}
+.menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.menu-item:hover { background: rgba(0, 194, 255, 0.1); }
+.menu-item.active { color: #00ffe0; background: rgba(0, 255, 224, 0.07); }
+.mi {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .right {
   margin-left: auto;
   display: flex;

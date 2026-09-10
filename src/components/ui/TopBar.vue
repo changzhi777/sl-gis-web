@@ -12,6 +12,7 @@
         <option v-for="b in banners" :key="b" :value="b">{{ b }}</option>
       </select>
     </div>
+  <NavTabs />
     <div class="county">
       视图
       <select :value="view" aria-label="视图切换" @change="onView">
@@ -46,6 +47,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import KpiCard from './KpiCard.vue';
+import NavTabs from './NavTabs.vue';
 
 interface TopKpi {
   value: number;

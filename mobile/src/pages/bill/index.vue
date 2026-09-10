@@ -62,7 +62,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { CURRENT_BILL, PAY_RECORDS, USAGE_6M, type MonthBill, type PayRecord, type UsageMonth } from '@/api/mock'
-import { apiGet, type BillRow } from '@/api/client'
+import { apiGet, apiPost } from '@/api/client'
 
 /** mock 起步 → 后端账单水合覆盖（失败回落 mock） */
 const bill = ref<MonthBill>(CURRENT_BILL)
@@ -103,8 +103,34 @@ function barHeight(value: number): string {
   return `${Math.round((value / maxUsage.value) * 100)}%`
 }
 
+/** 模拟支付：POST /api/portal/bills/pay → 刷新账单（微信渠道接入后替换此层） */
+const paying = ref(false)
 function onPay() {
-  uni.showToast({ title: '缴费通道对接中，敬请期待', icon: 'none' })
+  if (bill.value.status === '已缴' || paying.value) return
+  uni.showModal({
+    title: '确认缴费',
+    content: `${bill.value.month} 水费 ${bill.value.amount.toFixed(2)} 元`,
+    success: (res) => {
+      if (!res.confirm) return
+      void doPay()
+    },
+  })
+}
+async function doPay() {
+  paying.value = true
+  uni.showLoading({ title: '支付中…' })
+  const data = await apiPost<{ paid_amount: number }>('/api/portal/bills/pay', {
+    account: 'SL2026001',
+    month: bill.value.month.replace('年', '-').replace('月', ''),
+  })
+  uni.hideLoading()
+  paying.value = false
+  if (data) {
+    uni.showToast({ title: `缴费成功 ¥${data.paid_amount.toFixed(2)}`, icon: 'success' })
+    await loadBills()
+  } else {
+    uni.showToast({ title: '缴费失败，请重试', icon: 'none' })
+  }
 }
 </script>
 

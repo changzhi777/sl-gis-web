@@ -111,7 +111,7 @@ import SparkLine from '@charts/SparkLine.vue';
 import createStage from '@canvas/Stage';
 import type { Stage } from '@canvas/Stage';
 import { mockData } from '@mock/index';
-import { realtime, onRealtime } from '@/composables/realtime';
+import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
 import AlertList from './AlertList.vue';
 import MonitorPanel from './MonitorPanel.vue';
 import type { Project, Status, Grade, EmergencyEvent } from '@shared/types';
@@ -135,10 +135,13 @@ const viewerProject = ref<Project | null>(null);
 const viewerOrigin = ref<{ x: number; y: number } | null>(null);
 const kpiOnlineRate = ref(91.6);
 
+/* ---------- 工程数据（mock 起步 → 后端 /api/projects 水合覆盖） ---------- */
+const liveProjects = ref<Project[]>(mockData.projects);
+
 /* ---------- 派生：Legend 计数 ---------- */
 const legendProjects = computed(() => {
   const cnt: Partial<Record<Grade, number>> = { A: 0, B: 0, C: 0, D: 0 };
-  for (const p of mockData.projects) cnt[p.grade] = (cnt[p.grade] ?? 0) + 1;
+  for (const p of liveProjects.value) cnt[p.grade] = (cnt[p.grade] ?? 0) + 1;
   return cnt;
 });
 const legendAlarms = computed(() => {
@@ -247,11 +250,12 @@ onMounted(() => {
     }
   }));
 
-  // 喂入业务数据
-  stage.setProjects(mockData.projects);
+  // 喂入业务数据（mock 起步；真数据由 hydrateProjects 异步覆盖）
+  stage.setProjects(liveProjects.value);
   stage.setPipes(mockData.pipes);
   stage.setMonitors(mockData.monitors);
   stage.setAlerts(mockData.alerts);
+  void hydrateProjects();
 
   // 城市场景需要 base bbox（Track A 在 BaseMap init 时异步拿 banner.json）
   // 安排一个微任务重试，确保首次拿到 bbox
@@ -265,7 +269,7 @@ onMounted(() => {
 
   // 飞线（流量监测点 → 任一 A 级水厂工厂）
   const flowMonitors = mockData.monitors.filter((m) => m.type === 'flow');
-  const factory = mockData.projects.find((p) => p.grade === 'A' && p.status === 'normal') ?? mockData.projects[0];
+  const factory = liveProjects.value.find((p) => p.grade === 'A' && p.status === 'normal') ?? liveProjects.value[0];
   if (factory) stage.setFlyLines(flowMonitors.slice(0, 6), factory);
 
   // 城市密度同步
@@ -274,7 +278,7 @@ onMounted(() => {
   // 点击事件 → 打开 ModelViewer（仅 A 级）
   stage.on('layer:click', (payload) => {
     const id = String(payload ?? '');
-    const proj = mockData.projects.find((p) => p.id === id);
+    const proj = liveProjects.value.find((p) => p.id === id);
     if (!proj) return;
     if (proj.grade !== 'A') return; // §11.2 仅 A 级进入 3D
     viewerProject.value = proj;
@@ -284,6 +288,28 @@ onMounted(() => {
 
   stageReady.value = true;
 });
+
+/** 后端 /api/projects 水合：真工程覆盖 mock（失败静默保留 mock） */
+async function hydrateProjects(): Promise<void> {
+  const data = await apiFetch<{ total: number; items: Array<Record<string, unknown>> }>('/api/projects');
+  if (!data?.items?.length || !stage) return;
+  const projects: Project[] = data.items.map((p) => ({
+    id: String(p.code),
+    name: String(p.name),
+    grade: p.grade as Grade,
+    status: p.status as Status,
+    coord: [Number(p.lon), Number(p.lat)],
+    suMu: String(p.su_mu),
+    responsible: String(p.responsible ?? ''),
+    metrics: {},
+  }));
+  liveProjects.value = projects;
+  stage.setProjects(projects); // 图层可重入（PlantLayer 先清旧再建）
+  // 飞线终点随真厂归位
+  const flowMonitors = mockData.monitors.filter((m) => m.type === 'flow');
+  const factory = projects.find((p) => p.grade === 'A' && p.status === 'normal') ?? projects[0];
+  if (factory) stage.setFlyLines(flowMonitors.slice(0, 6), factory);
+}
 
 onBeforeUnmount(() => {
   realtime.stop();

@@ -192,6 +192,20 @@ async function connectSSE(): Promise<void> {
   };
 }
 
+/** 带令牌的 GET fetch（自动 ensureToken；失败返回 null，调用方降级） */
+export async function apiFetch<T>(path: string): Promise<T | null> {
+  const token = await ensureToken();
+  if (!token) return null;
+  try {
+    const r = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { code: number; data: T };
+    return j.code === 0 ? j.data : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 引擎运行状态（只读） */
 export const realtimeState = readonly({ running: _running, latency: _latency, sseConnected: _sseConnected });
 

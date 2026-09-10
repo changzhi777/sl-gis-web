@@ -175,8 +175,22 @@ export class PlantLayer extends BaseLayer {
     this.group.name = 'PlantGroup';
   }
 
-  /** A 级工程 → 前 5 个完整水厂，其余简化标志 */
+  /** 清旧 entries（重入水合前调用；group 本体保留挂载） */
+  private clearEntries(): void {
+    for (const e of this.entries) {
+      e.group.traverse(o => {
+        const m = o as THREE.Mesh;
+        if (m.geometry) m.geometry.dispose();
+      });
+      if (e.label) e.label.element.remove();
+      this.group.remove(e.group);
+    }
+    this.entries = [];
+  }
+
+  /** A 级工程 → 前 5 个完整水厂，其余简化标志（可重入：先清旧再建） */
   setPlants(projects: Project[]): void {
+    this.clearEntries();
     const aList = projects.filter(p => p.grade === 'A');
     const FULL_COUNT = 5;
 

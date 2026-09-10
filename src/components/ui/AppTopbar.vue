@@ -5,7 +5,7 @@
   · 告警灯：apiFetch('/api/alerts') 取存量未签收数，onRealtime('alert') 增量 +1
 -->
 <template>
-  <header class="topbar">
+  <header class="topbar" :class="{ 'fs-mode': app.fullscreen, 'fs-idle': fsIdle }">
     <div class="brand">
       <span class="name">旗县供水统管平台</span>
       <select v-model="banner" class="county-sel" aria-label="旗县切换">
@@ -60,22 +60,35 @@
     </div>
 
     <div class="right">
-      <span class="clock num">{{ clock }}</span>
-      <span class="lamp" :title="`未签收告警 ${alarmCount} 条`">
+      <span v-show="!app.fullscreen" class="clock num">{{ clock }}</span>
+      <span v-show="!app.fullscreen" class="lamp" :title="`未签收告警 ${alarmCount} 条`">
         <i class="dot" aria-hidden="true"></i>
         <b class="num">{{ alarmCount }}</b>
         <span class="lamp-text">未签收告警</span>
       </span>
+      <button
+        class="fs-btn"
+        type="button"
+        :aria-label="app.fullscreen ? '退出全屏' : '进入全屏'"
+        :title="app.fullscreen ? '退出全屏' : '进入全屏'"
+        @click="app.toggleFullscreen()"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path :d="app.fullscreen ? 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5' : 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5'" />
+        </svg>
+        <span v-if="!app.fullscreen" class="fs-text">全屏</span>
+      </button>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiFetch, onRealtime } from '@/composables/realtime';
 import { unpackItems } from '@shared/backend';
 import { useMapFocusStore } from '@stores/mapFocus';
+import { useAppStore } from '@stores/app';
 import { MENU_GROUPS } from '@ui/appMenu';
 import type { Project } from '@shared/types';
 
@@ -108,6 +121,20 @@ function onDocClick(e: MouseEvent): void {
 /* ---------- 时钟 HH:mm:ss 每秒 ---------- */
 const clock = ref('');
 let clockTimer: ReturnType<typeof setInterval> | undefined;
+const app = useAppStore();
+let unbindFs: (() => void) | null = null;
+/** 全屏态静置 8s 淡出迷你条；鼠标活动唤回 */
+const fsIdle = ref(false);
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+function wakeFsBar(): void {
+  if (!app.fullscreen) return;
+  fsIdle.value = false;
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { fsIdle.value = true; }, 8000);
+}
+function onFsPointer(): void {
+  if (app.fullscreen) wakeFsBar();
+}
 const p2 = (n: number) => String(n).padStart(2, '0');
 function tickClock(): void {
   const d = new Date();
@@ -149,6 +176,12 @@ function onPick(p?: Project): void {
 
 onMounted(async () => {
   document.addEventListener('click', onDocClick);
+  document.addEventListener('mousemove', onFsPointer);
+  unbindFs = app.bindFullscreenSync();
+  watch(() => app.fullscreen, (fs) => {
+    if (fs) wakeFsBar();
+    else if (idleTimer) clearTimeout(idleTimer);
+  });
   // 搜索数据源（一次性缓存）
   const projItems = unpackItems(await apiFetch('/api/projects'));
   if (projItems) projects.value = projItems.map((p) => ({
@@ -179,6 +212,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick);
+  document.removeEventListener('mousemove', onFsPointer);
+  unbindFs?.();
   if (clockTimer) clearInterval(clockTimer);
   offAlert?.();
 });
@@ -188,6 +223,7 @@ onBeforeUnmount(() => {
 .topbar {
   flex: none;
   height: 56px;
+  transition: opacity 0.3s ease;
   display: flex;
   align-items: center;
   gap: 20px;
@@ -359,6 +395,32 @@ onBeforeUnmount(() => {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.fs-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.fs-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.fs-btn:hover {
+  color: var(--spring-green);
+  background: rgba(0, 194, 255, 0.1);
+}
 .right {
   margin-left: auto;
   display: flex;
@@ -408,4 +470,29 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .lamp .dot { animation: none; }
 }
+
+/* ===== 全屏态：32px 迷你浮条（absolute 不占布局 · 静置 8s 淡出） ===== */
+.topbar.fs-mode {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  height: 32px;
+  gap: 14px;
+  padding: 0 14px;
+  background: linear-gradient(180deg, rgba(3, 8, 18, 0.72), rgba(3, 8, 18, 0));
+  border-bottom: none;
+}
+.topbar.fs-mode.fs-idle {
+  opacity: 0;
+  pointer-events: none;
+}
+.topbar.fs-mode .brand .name,
+.topbar.fs-mode .search {
+  display: none;
+}
+.topbar.fs-mode .county-sel { font-size: 12px; }
+.topbar.fs-mode .clock { font-size: 14px; }
+.topbar.fs-mode .fs-text { display: none; }
 </style>

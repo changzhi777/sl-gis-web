@@ -19,9 +19,12 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, provide, ref } from 'vue';
+import { onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
 import AppTopbar from '@ui/AppTopbar.vue';
+import { useAppStore } from '@stores/app';
 import { realtime } from '@/composables/realtime';
+
+const app = useAppStore();
 
 /** 图表 resize 信号（轻量 provide/inject，替代事件总线） */
 const contentResizeTick = ref(0);
@@ -43,9 +46,14 @@ function onWindowResize(): void {
 onMounted(() => {
   realtime.start(); // 无参启动：仅 SSE 告警频道；页面随后传入数据池时因 _running 幂等跳过
   window.addEventListener('resize', onWindowResize);
+  unbindFs = app.bindFullscreenSync();
+  watch(() => app.fullscreen, () => bumpTick()); // 全屏切换 → 面板显隐 → 图表 resize
 });
 
+let unbindFs: (() => void) | null = null;
+
 onBeforeUnmount(() => {
+  unbindFs?.();
   window.removeEventListener('resize', onWindowResize);
   if (resizeTimer) clearTimeout(resizeTimer);
 });
@@ -59,6 +67,7 @@ onBeforeUnmount(() => {
   background: var(--well-deep);
 }
 .main {
+  position: relative; /* 全屏态顶栏浮层的定位锚点 */
   flex: 1;
   min-width: 0;
   display: flex;

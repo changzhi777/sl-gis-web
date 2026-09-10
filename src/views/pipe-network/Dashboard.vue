@@ -23,6 +23,30 @@
           @alert-click="onAlertClick"
         />
 
+        <!-- 全屏态：未签收浮标（点击唤出告警抽屉） -->
+        <button
+          v-if="app.fullscreen"
+          class="fs-alarm-fab num"
+          :class="{ warn: fabCount > 0 }"
+          type="button"
+          @click="drawerOpen = true"
+        >
+          <i class="fab-dot" aria-hidden="true"></i>未签收 <b>{{ fabCount }}</b>
+        </button>
+
+        <!-- 告警抽屉（全屏态） -->
+        <Teleport to="body">
+          <div v-if="drawerOpen" class="fs-drawer-mask" @click="drawerOpen = false">
+            <aside class="fs-drawer" @click.stop>
+              <div class="fs-drawer-head">
+                <span>实时告警</span>
+                <button class="fs-drawer-close" type="button" @click="drawerOpen = false">✕</button>
+              </div>
+              <AlertList :alerts="liveAlerts" />
+            </aside>
+          </div>
+        </Teleport>
+
         <!-- 右上：图层开关 chip 组 + 复位 -->
         <div class="overlay chips-slot">
           <button
@@ -114,6 +138,7 @@ import { mockData } from '@mock/index';
 import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
 import { mapProject, mapMonitor, mapPipe, mapAlert, unpackItems } from '@shared/backend';
 import { useMapFocusStore } from '@stores/mapFocus';
+import { useAppStore } from '@stores/app';
 import AlertList from './AlertList.vue';
 import MonitorPanel from './MonitorPanel.vue';
 import type { EmergencyEvent, MonitorPoint, PipeSegment, Project } from '@shared/types';
@@ -143,6 +168,12 @@ const layerFiltered = computed(() => ({
 
 /* ---------- 选中详情（工程/告警互斥） ---------- */
 const mapRef = ref<InstanceType<typeof MapCanvas> | null>(null);
+const app = useAppStore();
+const drawerOpen = ref(false);
+const fabCount = computed(() => liveAlerts.value.filter((a) => a.status === '未签收').length);
+function onFsEsc(e: KeyboardEvent): void {
+  if (e.key === 'Escape') drawerOpen.value = false;
+}
 const selectedProject = ref<Project | null>(null);
 const selectedAlert = ref<EmergencyEvent | null>(null);
 
@@ -276,7 +307,11 @@ onMounted(() => {
   void hydrateAlerts();
 });
 
+onMounted(() => {
+  window.addEventListener('keydown', onFsEsc);
+});
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onFsEsc);
   realtime.stop();
   offs.forEach((off) => off());
 });
@@ -382,6 +417,96 @@ async function hydrateAlerts(): Promise<void> {
   background: rgba(0, 194, 255, 0.06);
   padding: 5px 10px;
   border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+/* ===== 全屏态：未签收浮标 + 告警抽屉 ===== */
+.fs-alarm-fab {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text-dim);
+  background: rgba(3, 8, 18, 0.78);
+  backdrop-filter: blur(4px);
+  border: var(--border-w) solid rgba(0, 194, 255, 0.25);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.fs-alarm-fab b { font-size: 16px; color: var(--text); }
+.fs-alarm-fab.warn {
+  border-color: rgba(255, 92, 92, 0.55);
+  color: #ff9e9e;
+}
+.fs-alarm-fab.warn b { color: var(--status-alarm); }
+.fab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(0, 194, 255, 0.5);
+}
+.fs-alarm-fab.warn .fab-dot {
+  background: var(--status-alarm);
+  box-shadow: 0 0 8px var(--status-alarm);
+  animation: fab-pulse 1.2s infinite;
+}
+@keyframes fab-pulse {
+  50% { opacity: 0.3; }
+}
+
+.fs-drawer-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(3, 8, 18, 0.4);
+}
+.fs-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 360px;
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  background: rgba(3, 8, 18, 0.92);
+  border-left: var(--border-w) solid var(--line-vein);
+}
+.fs-drawer-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--text);
+  border-bottom: var(--border-w) solid var(--line-vein);
+}
+.fs-drawer-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+}
+.fs-drawer-close:hover { color: var(--spring-green); }
+.fs-drawer .alerts { max-width: none; }
+
+/* 全屏态地图满幅（去栅格 padding 后铺满） */
+.mc-root {
+  transition: transform 0.32s ease-out;
+}
+.mc-root.fs-breath {
+  animation: fs-breath 0.32s ease-out;
+}
+@keyframes fs-breath {
+  0% { transform: scale(1.02); }
+  100% { transform: scale(1); }
 }
 
 /* 趋势带内 */

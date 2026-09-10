@@ -1,0 +1,27 @@
+{
+  "name": "SL供水通",
+  "appid": "",
+  "description": "SL-GIS 农村供水平台移动端（牧区用水户服务）",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "locale": "zh-Hans",
+  "h5": {
+    "title": "SL供水通",
+    "router": {
+      "mode": "hash"
+    }
+  },
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false,
+      "es6": true
+    },
+    "usingComponents": true
+  },
+  "uni-app": {
+    "scripts": {}
+  },
+  "vueVersion": "3"
+}

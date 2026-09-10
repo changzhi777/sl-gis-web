@@ -2,7 +2,7 @@
  * backend.ts — nano-api 数据 → 前端 shared 类型映射
  * 水合帮手：字段适配（code→id / su_mu→suMu / lon,lat→coord）+ 缺失字段合成（history 曲线）
  */
-import type { Grade, MonitorPoint, Project, Status } from '@shared/types';
+import type { Grade, MonitorPoint, PipeSegment, Project, Status } from '@shared/types';
 
 type ProjectRow = Record<string, unknown>;
 type MonitorRow = Record<string, unknown>;
@@ -51,6 +51,21 @@ export function mapMonitor(m: MonitorRow): MonitorPoint {
     value,
     history: synthHistory(value, type),
     status: (m.status === 'alarm' ? 'alarm' : 'normal') as Status,
+  };
+}
+
+export function mapPipe(p: Record<string, unknown>): PipeSegment {
+  const from = p.from as Record<string, unknown>;
+  const to = p.to as Record<string, unknown>;
+  return {
+    id: String(p.code),
+    start: [Number(from.lon), Number(from.lat)],
+    end: [Number(to.lon), Number(to.lat)],
+    diameter: Number(p.diameter),
+    material: p.material as PipeSegment['material'],
+    length: Number(p.length_m),
+    projectId: String(p.project_code),
+    installYear: Number(p.install_year),
   };
 }
 

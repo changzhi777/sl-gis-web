@@ -1,0 +1,17 @@
+// SL-GIS 移动端主题 · 深蓝科技风简化变量
+// 页面整体浅色底（白底蓝头）：导航/头部用深蓝渐变，内容区白底
+// $bg-dark / $brand-accent 保留大屏品牌口径，移动端仅作点缀
+
+$brand: #00c2ff;         // 主色（青蓝）
+$brand-accent: #00ffe0;  // 强调（数据高亮）
+$brand-deep: #0a1b3d;    // 深蓝（导航/头部）
+$bg-dark: #030812;       // 大屏底色（品牌保留色）
+$bg-page: #f5f7fa;       // 页面浅底
+$bg-card: #ffffff;       // 卡片白
+$text-main: #1f2d3d;     // 主文字
+$text-sub: #7a8ca6;      // 次文字
+$line: #e6eaf2;          // 分割线
+$ok: #2fbf71;            // 成功/已缴
+$warn: #ff7a45;          // 未缴/提醒
+$header-grad: linear-gradient(135deg, #0a1b3d 0%, #103a6e 60%, #0a5c8f 100%); // 头部深蓝渐变
+$radius: 20rpx;          // 卡片圆角

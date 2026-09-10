@@ -112,7 +112,7 @@ import createStage from '@canvas/Stage';
 import type { Stage } from '@canvas/Stage';
 import { mockData } from '@mock/index';
 import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
-import { mapProject, mapMonitor, unpackItems } from '@shared/backend';
+import { mapProject, mapMonitor, mapPipe, unpackItems } from '@shared/backend';
 import AlertList from './AlertList.vue';
 import MonitorPanel from './MonitorPanel.vue';
 import type { Project, Status, Grade, EmergencyEvent } from '@shared/types';
@@ -258,6 +258,7 @@ onMounted(() => {
   stage.setAlerts(mockData.alerts);
   void hydrateProjects();
   void hydrateMonitors();
+  void hydratePipes();
 
   // 城市场景需要 base bbox（Track A 在 BaseMap init 时异步拿 banner.json）
   // 安排一个微任务重试，确保首次拿到 bbox
@@ -309,6 +310,13 @@ async function hydrateMonitors(): Promise<void> {
   const items = unpackItems(await apiFetch('/api/monitors'));
   if (!items || !stage) return;
   stage.setMonitors(items.map(mapMonitor));
+}
+
+/** 后端 /api/pipes 水合：真管段覆盖 mock（连接真实工程对） */
+async function hydratePipes(): Promise<void> {
+  const items = unpackItems(await apiFetch('/api/pipes'));
+  if (!items || !stage) return;
+  stage.setPipes(items.map(mapPipe));
 }
 
 onBeforeUnmount(() => {

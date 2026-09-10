@@ -104,7 +104,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import DashboardLayout from '@/views/DashboardLayout.vue';
 import Panel from '@ui/Panel.vue';
 import TrendLine from '@charts/TrendLine.vue';
@@ -113,6 +113,7 @@ import MapCanvas from '@/components/map/MapCanvas.vue';
 import { mockData } from '@mock/index';
 import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
 import { mapProject, mapMonitor, mapPipe, mapAlert, unpackItems } from '@shared/backend';
+import { useMapFocusStore } from '@stores/mapFocus';
 import AlertList from './AlertList.vue';
 import MonitorPanel from './MonitorPanel.vue';
 import type { EmergencyEvent, MonitorPoint, PipeSegment, Project } from '@shared/types';
@@ -181,6 +182,23 @@ function onAlertClick(a: EmergencyEvent): void {
   const coord = a.projectId ? liveProjects.value.find((p) => p.id === a.projectId)?.coord : undefined;
   if (coord) mapRef.value?.focus(coord[0], coord[1]);
 }
+
+/* ---------- 全局搜索定位：AppTopbar 请求 → 选中 + 聚焦 ---------- */
+const focusStore = useMapFocusStore();
+watch(
+  () => focusStore.tick,
+  (tick) => {
+    if (!tick) return;
+    const p = focusStore.pending;
+    if (!p) return;
+    // 工程若在水合后到达，按 id 补全为 live 数据
+    const live = liveProjects.value.find((x) => x.id === p.id) ?? p;
+    selectedProject.value = live;
+    selectedAlert.value = null;
+    mapRef.value?.focus(live.coord[0], live.coord[1]);
+    focusStore.acknowledge();
+  },
+);
 
 /* ---------- 派生：趋势带（24h 序列，确定性） ---------- */
 const trendLabels = computed(() => {

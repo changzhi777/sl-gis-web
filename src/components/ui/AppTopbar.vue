@@ -15,6 +15,28 @@
 
     <span class="page-title">{{ pageTitle }}</span>
 
+    <div class="search" role="search">
+      <input
+        v-model="query"
+        class="search-input"
+        type="text"
+        placeholder="搜索工程名称 / 编码…"
+        aria-label="全局搜索工程"
+        @input="onQuery"
+        @focus="openList = true"
+        @blur="closeList"
+        @keydown.enter="onPick(suggestions[0])"
+        @keydown.esc="query = ''; openList = false"
+      />
+      <ul v-if="openList && suggestions.length" class="search-list">
+        <li v-for="s in suggestions" :key="s.id">
+          <button type="button" @mousedown.prevent="onPick(s)">
+            <b class="num">{{ s.id }}</b><span>{{ s.name }}</span>
+          </button>
+        </li>
+      </ul>
+    </div>
+
     <div class="right">
       <span class="clock num">{{ clock }}</span>
       <span class="lamp" :title="`未签收告警 ${alarmCount} 条`">
@@ -28,9 +50,11 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { apiFetch, onRealtime } from '@/composables/realtime';
 import { unpackItems } from '@shared/backend';
+import { useMapFocusStore } from '@stores/mapFocus';
+import type { Project } from '@shared/types';
 
 /* ---------- 旗县切换（搬 TopBar.vue 口径：本地视觉状态，1 期不落库） ---------- */
 const BANNERS = ['苏尼特右旗', '苏尼特左旗', '阿巴嘎旗', '西乌珠穆沁旗', '东乌珠穆沁旗'];
@@ -56,7 +80,50 @@ function tickClock(): void {
 const alarmCount = ref(0);
 let offAlert: (() => void) | null = null;
 
+/* ---------- 全局搜索：工程名/编码前缀匹配 → 跳一张图定位 ---------- */
+const router = useRouter();
+const focusStore = useMapFocusStore();
+const query = ref('');
+const openList = ref(false);
+const projects = ref<Project[]>([]);
+
+const suggestions = computed<Project[]>(() => {
+  const q = query.value.trim().toLowerCase();
+  if (!q) return [];
+  return projects.value
+    .filter((p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q))
+    .slice(0, 5);
+});
+
+function onQuery(): void {
+  openList.value = true;
+}
+function closeList(): void {
+  // 延时让 mousedown.pick 先于 blur 生效
+  setTimeout(() => { openList.value = false; }, 120);
+}
+function onPick(p?: Project): void {
+  if (!p) return;
+  query.value = '';
+  openList.value = false;
+  focusStore.request(p);
+  if (route.path !== '/dashboard') router.push('/dashboard');
+}
+
 onMounted(async () => {
+  // 搜索数据源（一次性缓存）
+  const projItems = unpackItems(await apiFetch('/api/projects'));
+  if (projItems) projects.value = projItems.map((p) => ({
+    id: String(p['code']),
+    name: String(p['name']),
+    grade: p['grade'] as Project['grade'],
+    status: p['status'] as Project['status'],
+    coord: [Number(p['lon']), Number(p['lat'])],
+    suMu: String(p['su_mu']),
+    responsible: '',
+    metrics: {},
+  }));
+
   tickClock();
   clockTimer = setInterval(tickClock, 1000);
 
@@ -130,6 +197,62 @@ onBeforeUnmount(() => {
   content: '/';
   margin-right: 10px;
   color: var(--line-vein);
+}
+
+/* 全局搜索 */
+.search {
+  position: relative;
+  margin-left: 4px;
+}
+.search-input {
+  width: 200px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(3, 8, 18, 0.6);
+  border: var(--border-w) solid var(--line-vein);
+  border-radius: var(--radius);
+  outline: none;
+  transition: border-color 0.15s ease, width 0.2s ease;
+}
+.search-input::placeholder { color: var(--text-dim); opacity: 0.7; }
+.search-input:focus {
+  border-color: rgba(0, 255, 224, 0.5);
+  width: 240px;
+}
+.search-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: rgba(3, 8, 18, 0.95);
+  border: var(--border-w) solid var(--line-vein);
+  border-radius: var(--radius);
+}
+.search-list button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  text-align: left;
+}
+.search-list button:hover { background: rgba(0, 194, 255, 0.1); }
+.search-list b { color: var(--spring-green); flex: none; }
+.search-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .right {

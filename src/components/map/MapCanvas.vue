@@ -81,8 +81,15 @@
             class="pipe-face"
             :d="p.d"
             :stroke-width="p.w"
-            :style="{ '--len': p.len, '--i': p.idx }"
+            :style="{ '--len': p.len, '--w': p.w, '--i': p.idx }"
             :marker-end="p.endArrow ? `url(#${p.markerId})` : undefined"
+          />
+          <!-- 选中工程关联管线：恒速流光（90 units/s · dash=周长/8 · dashoffset 负向=顺流向） -->
+          <path
+            v-if="p.active"
+            class="pipe-flow"
+            :d="p.d"
+            :style="{ '--len': p.len, '--w': p.w }"
           />
           <path v-if="p.midArrow" class="pipe-arrow" :d="p.midD" :marker-end="`url(#${p.markerId})`" />
         </g>
@@ -256,6 +263,7 @@ interface PipeView {
   len: number;
   w: number;
   idx: number;
+  active: boolean;
   endArrow: boolean;
   midArrow: boolean;
   midD: string;
@@ -280,6 +288,7 @@ const pipeView = computed<PipeView[]>(() =>
       len: +len.toFixed(1),
       w,
       idx: Math.min(i, 24),
+      active: pipe.projectId === props.selectedProjectId,
       endArrow: gradeAIds.value.has(pipe.projectId),
       midArrow: pipe.diameter >= 200,
       midD: `M${(mx - ux * 0.6).toFixed(1)} ${(my - uy * 0.6).toFixed(1)}L${(mx + ux * 0.6).toFixed(1)} ${(
@@ -629,6 +638,19 @@ watch(labelSpecs, async () => {
   fill: none;
   stroke: rgba(223, 247, 255, 0.82);
   stroke-linecap: round;
+}
+/* 选中工程关联管线的恒速流光（90 units/s · 只动 stroke-dashoffset） */
+.pipe-flow {
+  fill: none;
+  stroke: var(--spring-green);
+  stroke-width: calc(var(--w) * 0.45);
+  stroke-linecap: round;
+  stroke-dasharray: calc(var(--len) / 8);
+  animation: pipe-flow calc(var(--len) / 90 * 1s) linear infinite;
+  pointer-events: none;
+}
+@keyframes pipe-flow {
+  to { stroke-dashoffset: calc(-1 * var(--len)); }
 }
 .pipe-arrow {
   fill: none;

@@ -1,34 +1,60 @@
 /**
- * sumu-anchors.ts — 苏尼特右旗苏木乡镇锚点（bbox 相对坐标 + 权重）
- * 供三处共用：CityLayer 建筑聚簇 / mock 工程分布 / 管网走向
- * fx/fy = 相对 banner bbox 的比例坐标（0-1），weight = 聚簇规模系数
+ * 苏尼特右旗 · 8 苏木乡镇真实坐标（高德行政区 API 2026-09-10 实取）
+ * 三种格式共用同一组真实坐标：
+ *   SUMU_CENTERS — lon/lat（ TownshipLayer / mock 工程 / 管网分布）
+ *   SUMU_ANCHORS — fx/fy bbox 相对坐标（CityLayer 建筑聚簇）
+ *   nearestCenter(lon, lat) — 最近苏木查询
  */
 
-export interface SumuAnchor {
+export interface SumuCenter {
   name: string;
-  /** bbox 相对坐标 0-1 */
-  fx: number;
-  fy: number;
+  adcode: string;
+  center: [number, number];
   /** 建筑数量权重（旗驻地最大） */
   weight: number;
-  /** 是否旗/镇政府驻地 */
   isSeat?: boolean;
+  isIndustrial?: boolean;
 }
 
-/** 8 个苏木乡镇锚点（按真实地理大势分布在 bbox 内） */
-export const SUMU_ANCHORS: SumuAnchor[] = [
-  { name: '赛汉塔拉镇', fx: 0.24, fy: 0.48, weight: 3.0, isSeat: true },  // 旗驻地
-  { name: '朱日和镇', fx: 0.34, fy: 0.22, weight: 1.6 },
-  { name: '桑宝拉格苏木', fx: 0.16, fy: 0.68, weight: 1.0 },
-  { name: '额仁淖尔苏木', fx: 0.42, fy: 0.55, weight: 1.0 },
-  { name: '赛罕淖尔苏木', fx: 0.58, fy: 0.42, weight: 1.0 },
-  { name: '乌日根塔拉苏木', fx: 0.52, fy: 0.8, weight: 1.0 },
-  { name: '阿其图乌拉苏木', fx: 0.72, fy: 0.72, weight: 1.0 },
-  { name: '巴彦朱日和苏木', fx: 0.48, fy: 0.28, weight: 0.9 },
+/** 真实坐标 + 权重 */
+export const SUMU_CENTERS: SumuCenter[] = [
+  { name: '赛汉塔拉镇', adcode: '15252405', center: [113.103398, 42.5655], weight: 3.0, isSeat: true },
+  { name: '朱日和镇', adcode: '15252401', center: [113.402859, 42.477651], weight: 1.6 },
+  { name: '乌日根塔拉镇', adcode: '15252403', center: [112.568865, 43.604927], weight: 1.0 },
+  { name: '额仁淖尔苏木', adcode: '15252404', center: [111.977158, 43.169304], weight: 1.0 },
+  { name: '桑宝拉格苏木', adcode: '15252406', center: [113.02006, 43.126702], weight: 1.0 },
+  { name: '赛罕乌力吉苏木', adcode: '15252407', center: [113.725308, 42.469256], weight: 1.0 },
+  { name: '阿其图乌拉苏木', adcode: '15252402', center: [113.204435, 43.079935], weight: 0.9 },
+  { name: '朱日和工业园区', adcode: '15252408', center: [112.896731, 42.41697], weight: 0.6, isIndustrial: true },
 ];
 
-/** 按 anchor 权重随机取一个（调用方传 rng） */
-export function pickAnchor<T extends { weight: number }>(anchors: T[], rng: () => number): T {
+/** banner bbox（来自 DataV 152524.json 实测） */
+const BANNER_BBOX = { minLon: 111.15, maxLon: 114.55, minLat: 42.05, maxLat: 43.6 };
+const spanLon = BANNER_BBOX.maxLon - BANNER_BBOX.minLon;
+const spanLat = BANNER_BBOX.maxLat - BANNER_BBOX.minLat;
+
+/** fx/fy 格式（CityLayer 建筑聚簇消费） */
+export const SUMU_ANCHORS = SUMU_CENTERS.map(c => ({
+  name: c.name,
+  weight: c.weight,
+  isSeat: c.isSeat,
+  fx: (c.center[0] - BANNER_BBOX.minLon) / spanLon,
+  fy: (c.center[1] - BANNER_BBOX.minLat) / spanLat,
+}));
+
+/** 最近苏木查询（mock 工程分配 / 乡镇区划着色） */
+export function nearestCenter(lon: number, lat: number): SumuCenter {
+  let best = SUMU_CENTERS[0];
+  let bestD = Infinity;
+  for (const c of SUMU_CENTERS) {
+    const d = (c.center[0] - lon) ** 2 + (c.center[1] - lat) ** 2;
+    if (d < bestD) { bestD = d; best = c; }
+  }
+  return best;
+}
+
+/** 按权重随机取锚点（调用方传 rng） */
+export function pickAnchorByWeight<T extends { weight: number }>(anchors: T[], rng: () => number): T {
   const total = anchors.reduce((s, a) => s + a.weight, 0);
   let r = rng() * total;
   for (const a of anchors) {

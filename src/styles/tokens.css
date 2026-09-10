@@ -84,3 +84,19 @@ button { font-family: inherit; }
   color: #FFD9A0 !important;
   font-size: 12px !important;
 }
+
+/* 苏木乡镇 CSS2D 名称牌 */
+.sl-gis-township-label {
+  color: #9DB2C6;
+  font-family: var(--cn);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  padding: 2px 8px;
+  background: rgba(3, 8, 18, 0.75);
+  border: 1px solid rgba(0, 194, 255, 0.2);
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  letter-spacing: 1px;
+}

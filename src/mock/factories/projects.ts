@@ -8,7 +8,7 @@
  */
 
 import type { Project, Grade, Status } from '@shared/types';
-import { SUMU_ANCHORS, pickAnchor } from '@shared/sumu-anchors';
+import { SUMU_CENTERS, pickAnchorByWeight } from '@shared/sumu-anchors';
 
 // ---------- 确定性 PRNG (mulberry32) ----------
 function mulberry32(seed: number): () => number {
@@ -26,15 +26,13 @@ function mulberry32(seed: number): () => number {
 export const FLAG_CENTER: [number, number] = [113.45, 42.72]; // banner bbox 真中心
 
 // banner bbox 半径（度）— 用于锚点 fx/fy → 经纬度换算
-const BANNER_HALF_LON = 1.3;
-const BANNER_HALF_LAT = 0.7;
 
 /** 锚点附近取坐标（高斯抖动 ~0.06°，工程贴着苏木镇分布） */
 function anchorCoord(rand: () => number): [number, number] {
-  const a = pickAnchor(SUMU_ANCHORS, rand);
+  const a = pickAnchorByWeight(SUMU_CENTERS, rand);
   const g = () => (rand() + rand() + rand() - 1.5) / 1.5; // 近高斯 [-1,1]
-  const lon = 113.45 + (a.fx - 0.5) * 2 * BANNER_HALF_LON + g() * 0.07;
-  const lat = 42.72 + (a.fy - 0.5) * 2 * BANNER_HALF_LAT + g() * 0.05;
+  const lon = a.center[0] + g() * 0.07;
+  const lat = a.center[1] + g() * 0.05;
   return [round(lon, 6), round(lat, 6)];
 }
 

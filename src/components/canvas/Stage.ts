@@ -24,6 +24,8 @@ import { CityLayer } from './CityLayer';
 import { ModelLayer } from './ModelLayer';
 import { GroundLayer } from './GroundLayer';
 import { PlantLayer } from './PlantLayer';
+import { TownshipLayer } from './TownshipLayer';
+import { TileLayer } from './TileLayer';
 import { pickAt, pickIds, type PickableEntry } from './hitTest';
 import { lon2xy } from './utils/lon2xy';
 import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
@@ -51,6 +53,8 @@ declare global {
 
 type LayerName =
   | 'Plant'
+  | 'Township'
+  | 'Tile'
   | 'Ground'
   | 'BaseMap'
   | 'Pipe'
@@ -160,6 +164,8 @@ export class Stage {
 
     const ground = new GroundLayer();
     const plant = new PlantLayer();
+    const township = new TownshipLayer();
+    const tile = new TileLayer();
     const baseMap = new BaseMapLayer();
     const pipe = new PipeLayer();
     const project = new ProjectLayer();
@@ -179,6 +185,8 @@ export class Stage {
     };
 
     addLayer(ground);
+    addLayer(tile);
+    addLayer(township);
     addLayer(plant);
     addLayer(baseMap);
     addLayer(pipe);
@@ -324,6 +332,10 @@ export class Stage {
     this.controls.update();
     const g = this.layers.get('Ground') as GroundLayer | undefined;
     g?.buildForBBox({ minLon: bbox.minLon, maxLon: bbox.maxLon, minLat: bbox.minLat, maxLat: bbox.maxLat });
+    const tw = this.layers.get('Township') as TownshipLayer | undefined;
+    tw?.build();
+    const tl = this.layers.get('Tile') as TileLayer | undefined;
+    tl?.buildForBBox({ minLon: bbox.minLon, maxLon: bbox.maxLon, minLat: bbox.minLat, maxLat: bbox.maxLat });
     return true;
   }
 

@@ -56,6 +56,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { apiWrite } from '@/composables/realtime';
 import type { EmergencyEvent } from '@shared/types';
 
 const props = defineProps<{
@@ -99,7 +100,15 @@ const unsignedCount = computed(() => rows.value.filter((a) => a.status === '未�
 
 watch(unsignedCount, (n) => emit('unsigned-change', n), { immediate: true });
 
-function sign(a: EmergencyEvent) {
+/** 签收：BX- 报修工单走真实状态流转（待受理→处理中），普通告警保持本地签收 */
+async function sign(a: EmergencyEvent) {
+  if (a.id.startsWith('BX-')) {
+    const done = await apiWrite('PUT', `/api/repairs/${a.id}/status`, { status: '处理中' });
+    if (!done) {
+      alert('工单流转失败，请重试');
+      return;
+    }
+  }
   const next = new Set(signedIds.value);
   next.add(a.id);
   signedIds.value = next;

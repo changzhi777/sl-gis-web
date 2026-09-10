@@ -215,6 +215,24 @@ export async function apiFetch<T>(path: string): Promise<T | null> {
   }
 }
 
+/** 带令牌的写操作（POST/PUT/DELETE；成功 true，失败 false） */
+export async function apiWrite(method: 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<boolean> {
+  const token = await ensureToken();
+  if (!token) return false;
+  try {
+    const r = await fetch(path, {
+      method,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!r.ok) return false;
+    const j = (await r.json()) as { code: number };
+    return j.code === 0;
+  } catch {
+    return false;
+  }
+}
+
 /** 引擎运行状态（只读） */
 export const realtimeState = readonly({ running: _running, latency: _latency, sseConnected: _sseConnected });
 

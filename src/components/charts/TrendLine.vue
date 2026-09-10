@@ -3,7 +3,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import type { Ref } from 'vue';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import {
@@ -55,6 +56,9 @@ const props = withDefaults(
 
 const root = ref<HTMLDivElement | null>(null);
 let chart: echarts.ECharts | null = null;
+
+/** AppShell 提供的全局 resize 信号（侧栏折叠/窗口变化后 +150ms 自增） */
+const contentResizeTick = inject<Ref<number>>('contentResizeTick', ref(0));
 
 const containerStyle = computed(() => ({
   width: '100%',
@@ -206,14 +210,21 @@ function render() {
   chart.setOption(buildOption(), { notMerge: true });
 }
 
+/** 防抖 resize：侧栏 200ms 过渡期间 ResizeObserver 连发，只在静止 100ms 后调一次 */
+let roTimer: ReturnType<typeof setTimeout> | null = null;
+
 function init() {
   if (!root.value) return;
   chart = echarts.init(root.value, props.theme);
   render();
-  const ro = new ResizeObserver(() => chart?.resize());
+  const ro = new ResizeObserver(() => {
+    if (roTimer) clearTimeout(roTimer);
+    roTimer = setTimeout(() => chart?.resize(), 100);
+  });
   ro.observe(root.value);
   onBeforeUnmount(() => {
     ro.disconnect();
+    if (roTimer) clearTimeout(roTimer);
   });
 }
 
@@ -227,6 +238,9 @@ onBeforeUnmount(() => {
     chart = null;
   }
 });
+
+// 侧栏折叠/窗口 resize 完成 → 补一次 resize（兜底 ResizeObserver 未触发的场景）
+watch(contentResizeTick, () => chart?.resize());
 
 watch(
   () => [props.series, props.xLabels, props.height, props.theme, props.showLegend, props.area, props.smooth],

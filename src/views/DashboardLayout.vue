@@ -1,51 +1,39 @@
 <!--
-  DashboardLayout.vue — 1920×1080 九宫格骨架
+  DashboardLayout.vue — 大屏三列弹性骨架（T1 弹性布局：不再等比缩放）
   视觉标准：preview.html `main` 栅格 + design-system §5
-  · v-scale-screen 等比缩放（不自研）
-  · 3 列（左 400 / 中 flex / 右 400）× 2 行（中央 1fr / 趋势带 176px 通栏）
-  · 槽位：top / left / map / right / trend（left、right、top 有默认业务组件）
+  · 3 列（左 minmax(300px,5fr) / 中 minmax(0,14fr) / 右 minmax(300px,5fr)）
+    × 2 行（中央 1fr / 趋势带 clamp(140px,14vh,176px) 通栏）
+  · 左右列子项 max-width 440px（超宽屏防摊薄）
+  · 槽位：left / map / right / trend（left、right 有默认业务组件）
 -->
 <template>
-  <VScaleScreen
-    :width="1920"
-    :height="1080"
-    :full-screen="false"
-    :box-style="{ background: '#030812' }"
-  >
-    <div class="screen">
-      <slot name="top">
-        <TopBar />
-      </slot>
+  <div class="screen">
+    <main class="grid">
+      <div class="col col-l">
+        <slot name="left">
+          <CockpitPanel />
+        </slot>
+      </div>
 
-      <main class="grid">
-        <div class="col col-l">
-          <slot name="left">
-            <CockpitPanel />
-          </slot>
-        </div>
+      <section class="cell-map">
+        <slot name="map" />
+      </section>
 
-        <section class="cell-map">
-          <slot name="map" />
-        </section>
+      <div class="col col-r">
+        <slot name="right">
+          <AlertList />
+          <MonitorPanel />
+        </slot>
+      </div>
 
-        <div class="col col-r">
-          <slot name="right">
-            <AlertList />
-            <MonitorPanel />
-          </slot>
-        </div>
-
-        <section class="cell-trend">
-          <slot name="trend" />
-        </section>
-      </main>
-    </div>
-  </VScaleScreen>
+      <section class="cell-trend">
+        <slot name="trend" />
+      </section>
+    </main>
+  </div>
 </template>
 
 <script setup lang="ts">
-import VScaleScreen from 'v-scale-screen';
-import TopBar from '@ui/TopBar.vue';
 import CockpitPanel from './pipe-network/CockpitPanel.vue';
 import AlertList from './pipe-network/AlertList.vue';
 import MonitorPanel from './pipe-network/MonitorPanel.vue';
@@ -53,8 +41,8 @@ import MonitorPanel from './pipe-network/MonitorPanel.vue';
 
 <style scoped>
 .screen {
-  width: 1920px;
-  height: 1080px;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--well-deep);
@@ -65,8 +53,8 @@ import MonitorPanel from './pipe-network/MonitorPanel.vue';
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 400px 1fr 400px;
-  grid-template-rows: 1fr 176px;
+  grid-template-columns: minmax(300px, 5fr) minmax(0, 14fr) minmax(300px, 5fr);
+  grid-template-rows: 1fr clamp(140px, 14vh, 176px);
   gap: var(--panel-gap);
   padding: var(--panel-gap);
 }
@@ -76,10 +64,18 @@ import MonitorPanel from './pipe-network/MonitorPanel.vue';
   flex-direction: column;
   gap: var(--panel-gap);
   min-height: 0;
+  min-width: 0;
   grid-row: 1;
 }
 .col-l { grid-column: 1; }
 .col-r { grid-column: 3; }
+
+/* 左右列子项：超宽屏防摊薄 */
+.col > * {
+  width: 100%;
+  max-width: 440px;
+  min-height: 0;
+}
 
 /* 中央 WebGL 一张图（地图即主角 §1） */
 .cell-map {

@@ -5,16 +5,8 @@
   · 三张表均按工程 id 种子确定性生成（1 期 mock 口径，刷新不变）
 -->
 <template>
-  <VScaleScreen
-    :width="1920"
-    :height="1080"
-    :full-screen="false"
-    :box-style="{ background: '#030812' }"
-  >
-    <div class="screen">
-      <TopBar />
-
-      <section class="page">
+  <div class="screen">
+    <section class="page">
         <!-- 顶栏：返回 + 标题 -->
         <div class="head">
           <button class="back-btn" type="button" @click="router.push('/archives')">
@@ -179,14 +171,11 @@
         </div>
       </section>
     </div>
-  </VScaleScreen>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import VScaleScreen from 'v-scale-screen';
-import TopBar from '@ui/TopBar.vue';
 import Panel from '@ui/Panel.vue';
 import { mockData } from '@mock/index';
 import { STATUS_COLOR, type Grade, type Project, type Status } from '@shared/types';
@@ -433,8 +422,8 @@ const tests = computed<TestRow[]>(() => {
 
 <style scoped>
 .screen {
-  width: 1920px;
-  height: 1080px;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--well-deep);

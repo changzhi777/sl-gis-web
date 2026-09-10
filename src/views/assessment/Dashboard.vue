@@ -1,6 +1,6 @@
 <!--
-  assessment/Dashboard.vue — 统计考核大屏（需求 §十一 报表 + §十二 考核六维）
-  · v-scale-screen 1920×1080，TopBar view="统计考核"
+  assessment/Dashboard.vue — 统计考核大屏（需求 §十一 报表 + §十二 考核六维 · T1 弹性布局壳）
+  · 顶栏/侧栏职责已上收全局 AppShell/AppTopbar
   · 顶部 KPI 条：规模化供水覆盖率 / 工程正常运行率 / 设备在线率 / 水质合格率 / 收费率 / 工单办结率
   · 左列：考核六维雷达（RadarChart）+ 六维得分列表
   · 中列：报表中心（日报/月报/年报 tab，指标名/本期值/上期值/同比/达标）+ 苏木乡镇排名（CSS 条，前三高亮）
@@ -8,16 +8,8 @@
   · 数据源：页内确定性 mock（./mock.ts），无随机量
 -->
 <template>
-  <VScaleScreen
-    :width="1920"
-    :height="1080"
-    :full-screen="false"
-    :box-style="{ background: '#030812' }"
-  >
-    <div class="screen">
-      <TopBar view="统计考核" :views="['统计考核']" :kpis="[]" />
-
-      <!-- 顶部 KPI 条：考核核心六率 -->
+  <div class="screen">
+    <!-- 顶部 KPI 条：考核核心六率 -->
       <div class="kpi-strip" role="group" aria-label="考核核心指标">
         <div
           v-for="(k, i) in ASSESS_KPIS"
@@ -179,13 +171,10 @@
         </div>
       </main>
     </div>
-  </VScaleScreen>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import VScaleScreen from 'v-scale-screen';
-import TopBar from '@ui/TopBar.vue';
 import Panel from '@ui/Panel.vue';
 import KpiCard from '@ui/KpiCard.vue';
 import MicroBar from '@charts/MicroBar.vue';
@@ -255,8 +244,8 @@ function priorityColor(p: number): string {
 
 <style scoped>
 .screen {
-  width: 1920px;
-  height: 1080px;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--well-deep);

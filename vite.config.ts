@@ -11,7 +11,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@canvas': fileURLToPath(new URL('./src/components/canvas', import.meta.url)),
       '@ui': fileURLToPath(new URL('./src/components/ui', import.meta.url)),
       '@charts': fileURLToPath(new URL('./src/components/charts', import.meta.url)),
       '@stores': fileURLToPath(new URL('./src/stores', import.meta.url)),
@@ -32,14 +31,13 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          three: ['three'],
-          echarts: ['echarts', 'echarts-gl'],
+          echarts: ['echarts'],
           vue: ['vue', 'vue-router', 'pinia'],
         },
       },
     },
   },
   optimizeDeps: {
-    include: ['three', 'echarts', 'echarts-gl', 'v-scale-screen', 'mockjs'],
+    include: ['echarts', 'v-scale-screen', 'mockjs'],
   },
 });

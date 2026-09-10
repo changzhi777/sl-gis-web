@@ -1,6 +1,6 @@
 <!--
-  patrol/Dashboard.vue — 巡检工单大屏（需求 §七 巡检养护与工单闭环）
-  · v-scale-screen 1920×1080
+  patrol/Dashboard.vue — 巡检工单大屏（需求 §七 巡检养护与工单闭环 · T1 弹性布局壳）
+  · 顶栏/侧栏职责已上收全局 AppShell/AppTopbar
   · 顶部 KPI 条：巡检完成率 / 工单办结率 / 平均修复时间 / 重复故障率
   · 左列：今日巡检计划 + 本周巡检完成；中列：工单看板（待接单/处理中/已完成）
   · 右列：巡检覆盖率（按苏木乡镇）+ 工单类型分布
@@ -8,16 +8,8 @@
   · 工单 mock：mockData.alerts 映射（未签收→待接单 / 已派单·已签收→处理中）+ 现场确定性衍生
 -->
 <template>
-  <VScaleScreen
-    :width="1920"
-    :height="1080"
-    :full-screen="false"
-    :box-style="{ background: '#030812' }"
-  >
-    <div class="screen">
-      <TopBar />
-
-      <!-- 顶部 KPI 条 -->
+  <div class="screen">
+    <!-- 顶部 KPI 条 -->
       <div class="kpi-strip">
         <div class="kpi-cell">
           <KpiCard :value="kpi.patrolRate" unit="%" label="巡检完成率" glow />
@@ -159,13 +151,10 @@
         </div>
       </main>
     </div>
-  </VScaleScreen>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import VScaleScreen from 'v-scale-screen';
-import TopBar from '@ui/TopBar.vue';
 import Panel from '@ui/Panel.vue';
 import KpiCard from '@ui/KpiCard.vue';
 import TrendLine from '@charts/TrendLine.vue';
@@ -385,8 +374,8 @@ const maxStaffCount = computed(() => Math.max(1, ...staffLoad.value.map((s) => s
 
 <style scoped>
 .screen {
-  width: 1920px;
-  height: 1080px;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--well-deep);

@@ -6,16 +6,8 @@
   · 行点击 / 操作列 → /archives/:id 详情（archive-detail 路由）
 -->
 <template>
-  <VScaleScreen
-    :width="1920"
-    :height="1080"
-    :full-screen="false"
-    :box-style="{ background: '#030812' }"
-  >
-    <div class="screen">
-      <TopBar />
-
-      <section class="page">
+  <div class="screen">
+    <section class="page">
         <!-- 筛选栏 -->
         <div class="toolbar">
           <input
@@ -115,14 +107,11 @@
         </div>
       </section>
     </div>
-  </VScaleScreen>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import VScaleScreen from 'v-scale-screen';
-import TopBar from '@ui/TopBar.vue';
 import { mockData } from '@mock/index';
 import { STATUS_COLOR, type Grade, type Project, type Status } from '@shared/types';
 
@@ -268,8 +257,8 @@ function goDetail(id: string): void {
 
 <style scoped>
 .screen {
-  width: 1920px;
-  height: 1080px;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--well-deep);

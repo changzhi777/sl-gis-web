@@ -1,6 +1,6 @@
 <!--
-  public-service/Dashboard.vue — 公众服务大屏主视图（需求 §十，1920×1080，v-scale-screen）
-  · 顶栏：复用 @ui/TopBar（view=公众服务，告警灯 = 待受理工单数）
+  public-service/Dashboard.vue — 公众服务大屏主视图（需求 §十 · T1 弹性布局壳）
+  · 顶栏/侧栏职责已上收全局 AppShell/AppTopbar
   · KPI 条：本月公告 / 在线报修 / 投诉建议 / 办结率 / 平均响应时长 / 满意度
   · 左列（400px）：信息公告（停水/限时供水/水质检测/恢复供水 × 公众号/小程序/热线）
   · 中列（flex）：报修投诉工单池 —— 四阶段进度管道 + 近 7 日受理趋势 + 工单明细表
@@ -8,16 +8,8 @@
   · 数据全部来自 ./mock（页内确定性 mock），1 期无后端
 -->
 <template>
-  <VScaleScreen
-    :width="1920"
-    :height="1080"
-    :full-screen="false"
-    :box-style="{ background: '#030812' }"
-  >
-    <div class="screen">
-      <TopBar view="公众服务" :views="VIEW_OPTIONS" :alarm-count="pendingCount" />
-
-      <!-- 顶部 KPI 条 -->
+  <div class="screen">
+    <!-- 顶部 KPI 条 -->
       <div class="kpi-strip" role="group" aria-label="公众服务关键指标">
         <div v-for="k in pageKpis" :key="k.label" class="kpi-cell">
           <KpiCard layout="block" :value="k.value" :unit="k.unit" :label="k.label" />
@@ -179,13 +171,10 @@
         </div>
       </main>
     </div>
-  </VScaleScreen>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import VScaleScreen from 'v-scale-screen';
-import TopBar from '@ui/TopBar.vue';
 import KpiCard from '@ui/KpiCard.vue';
 import Panel from '@ui/Panel.vue';
 import TrendLine from '@charts/TrendLine.vue';
@@ -207,9 +196,6 @@ import {
   weekTrend,
 } from './mock';
 
-/* ---------- 顶栏 ---------- */
-const VIEW_OPTIONS: string[] = ['公众服务', '按渠道', '按苏木乡镇'];
-
 /* ---------- 进度管道：按工单池推导四阶段计数（口径与明细表一致） ---------- */
 const stageCards = computed(() => {
   const counts = STAGE_ORDER.map((stage) => ({
@@ -221,8 +207,6 @@ const stageCards = computed(() => {
   return counts.map((c) => ({ ...c, width: Math.round((c.count / max) * 100) }));
 });
 
-/** 待受理数（顶栏告警灯口径：待接单即待办警示） */
-const pendingCount = computed(() => stageCards.value[0].count);
 /** 在办 = 待受理 + 处理中 + 待回访 */
 const openCount = computed(() =>
   stageCards.value.slice(0, 3).reduce((s, c) => s + c.count, 0),
@@ -247,8 +231,8 @@ const starRows = computed(() =>
 
 <style scoped>
 .screen {
-  width: 1920px;
-  height: 1080px;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--well-deep);

@@ -1,7 +1,7 @@
 <!--
-  emergency/Dashboard.vue — 应急指挥大屏（1920×1080）
+  emergency/Dashboard.vue — 应急指挥大屏（T1 弹性布局壳，全局 AppShell 供顶栏/侧栏）
   视觉标准：preview.html + design-system（tokens.css 同源）
-  · 顶栏复用 TopBar（kpis 置空，告警灯 = 未签收数）
+  · 顶栏/告警灯职责已上收 AppTopbar（全局）
   · KPI 条：今日事件 / 未签收 / 处置中 / 平均响应时间 / 重大事件数
   · 左列：ResourcePanel 应急资源 + 响应统计（TrendLine 近 7 日）
   · 中列：事件地图（简化 SVG：真实旗界/乡镇界 GeoJSON + 事件脉冲 + 资源点 + 调度连线）
@@ -11,16 +11,8 @@
   数据：全部 mock（mockData.alerts/projects + 本地确定性常量），坐标不虚构
 -->
 <template>
-  <VScaleScreen
-    :width="1920"
-    :height="1080"
-    :full-screen="false"
-    :box-style="{ background: '#030812' }"
-  >
-    <div class="screen">
-      <TopBar :kpis="[]" :alarm-count="unsignedCount" @alarm-click="focusTopAlarm" />
-
-      <!-- KPI 条 -->
+  <div class="screen">
+    <!-- KPI 条 -->
       <div class="kpi-strip" role="group" aria-label="应急态势总览">
         <div v-for="k in stripKpis" :key="k.label" class="ks" :class="k.tone">
           <div class="v num">
@@ -215,13 +207,10 @@
         </div>
       </main>
     </div>
-  </VScaleScreen>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import VScaleScreen from 'v-scale-screen';
-import TopBar from '@ui/TopBar.vue';
 import Panel from '@ui/Panel.vue';
 import TrendLine from '@charts/TrendLine.vue';
 import ResourcePanel from './ResourcePanel.vue';
@@ -305,11 +294,6 @@ function selectEvent(a: EmergencyEvent): void {
   selected.value = a;
   const coord = a.projectId ? projectCoord.get(a.projectId) : undefined;
   focusPt.value = coord ? proj(coord[0], coord[1]) : null;
-}
-
-function focusTopAlarm(): void {
-  const a = liveAlerts.value.find((x) => x.status === '未签收') ?? liveAlerts.value[0];
-  if (a) selectEvent(a);
 }
 
 /* ================= SVG 地图（真实 GeoJSON 投影） ================= */
@@ -576,8 +560,8 @@ function togglePlan(i: number): void {
 
 <style scoped>
 .screen {
-  width: 1920px;
-  height: 1080px;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--well-deep);

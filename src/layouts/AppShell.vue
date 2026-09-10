@@ -1,0 +1,77 @@
+<!--
+  AppShell.vue — 全局弹性布局壳（T1 轨道）
+  · 根：flex 横向，100vh 铺满，min-width 1366px 兜底横滚
+  · 左：AppSidebar（分组导航，可折叠）｜右：主区（AppTopbar 56px + router-view）
+  · onMounted 启动全局实时引擎（realtime 模块级单例，_running 防重入；
+    页面内的 start 调用幂等无害）——顶栏告警灯需要全局引擎
+  · contentResizeTick：侧栏折叠 / 窗口 resize 后 +150ms（等 CSS 过渡结束）自增，
+    图表组件 inject 后 watch 该 tick 补一次 resize
+-->
+<template>
+  <div class="shell">
+    <AppSidebar @collapsed-change="onSidebarSettled" />
+    <div class="main">
+      <AppTopbar />
+      <main class="content">
+        <router-view />
+      </main>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, provide, ref } from 'vue';
+import AppSidebar from '@ui/AppSidebar.vue';
+import AppTopbar from '@ui/AppTopbar.vue';
+import { realtime } from '@/composables/realtime';
+
+/** 图表 resize 信号（轻量 provide/inject，替代事件总线） */
+const contentResizeTick = ref(0);
+provide('contentResizeTick', contentResizeTick);
+
+let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+/** 150ms 防抖：等侧栏 200ms 过渡近尾/窗口布局稳定后再 bump */
+function bumpTick(): void {
+  if (resizeTimer) clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    contentResizeTick.value++;
+  }, 150);
+}
+
+/** 侧栏折叠切换结束（AppSidebar 已等过 200ms 过渡） */
+function onSidebarSettled(): void {
+  bumpTick();
+}
+function onWindowResize(): void {
+  bumpTick();
+}
+
+onMounted(() => {
+  realtime.start(); // 无参启动：仅 SSE 告警频道；页面随后传入数据池时因 _running 幂等跳过
+  window.addEventListener('resize', onWindowResize);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onWindowResize);
+  if (resizeTimer) clearTimeout(resizeTimer);
+});
+</script>
+
+<style scoped>
+.shell {
+  display: flex;
+  height: 100vh;
+  min-width: 1366px; /* 非 16:9 / 窄屏兜底：超出出横滚 */
+  background: var(--well-deep);
+}
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.content {
+  flex: 1;
+  min-height: 0;
+}
+</style>

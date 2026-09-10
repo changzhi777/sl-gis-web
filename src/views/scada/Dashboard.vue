@@ -1,7 +1,7 @@
 <!--
-  scada/Dashboard.vue — SCADA 运行监控大屏主视图（1920×1080，v-scale-screen）
+  scada/Dashboard.vue — SCADA 运行监控大屏主视图（T1 弹性布局壳，全局 AppShell 供顶栏/侧栏）
   路由 /scada（router 已注册，本模块不改 router）
-  · 顶栏：复用 @ui/TopBar（SCADA 口径 KPI + 告警灯）
+  · 顶栏/告警灯职责已上收 AppTopbar（全局）
   · KPI 条：在线率 / 数据完整率 / 告警数 / 平均压力 / 总流量（KpiCard block）
   · 左列：测点选择（按类型分组，点选→曲线联动）+ 泵站状态（运行/备用/故障三态卡）
   · 中列：实时曲线对比（CurveCompare）+ 工艺流程图（ProcessFlow SVG）
@@ -9,21 +9,8 @@
   · 数据全部来自 @mock/index（monitors 50 + alerts 6 + cockpit KPI），1 期无后端
 -->
 <template>
-  <VScaleScreen
-    :width="1920"
-    :height="1080"
-    :full-screen="false"
-    :box-style="{ background: '#030812' }"
-  >
-    <div class="screen">
-      <TopBar
-        view="实时监测"
-        :views="VIEW_OPTIONS"
-        :kpis="topKpis"
-        :alarm-count="unsignedLive"
-      />
-
-      <!-- 顶部 KPI 条 -->
+  <div class="screen">
+    <!-- 顶部 KPI 条 -->
       <div class="kpi-strip" role="group" aria-label="SCADA 关键指标">
         <div
           v-for="k in stripKpis"
@@ -123,13 +110,10 @@
         </div>
       </main>
     </div>
-  </VScaleScreen>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import VScaleScreen from 'v-scale-screen';
-import TopBar from '@ui/TopBar.vue';
 import KpiCard from '@ui/KpiCard.vue';
 import Panel from '@ui/Panel.vue';
 import StatusBars from '@charts/StatusBars.vue';
@@ -143,8 +127,6 @@ import { MONITOR_COLOR, STATUS_COLOR } from '@shared/types';
 import type { EmergencyEvent, MonitorPoint, Project, Status } from '@shared/types';
 
 /* ---------- 常量 ---------- */
-const VIEW_OPTIONS: string[] = ['实时监测', '按泵站', '按苏木乡镇'];
-
 /** 类型中文 + 单位（单位口径与 CurveCompare.TYPE_META.unit 保持一致） */
 const UNITS: Record<MonitorPoint['type'], string> = {
   pressure: 'MPa',
@@ -224,12 +206,6 @@ const stripKpis = computed(() => [
   { value: liveAlerts.value.length, unit: '条', label: '实时告警', alarm: true },
   { value: avgPressure.value, unit: 'MPa', label: '平均压力', alarm: false },
   { value: totalFlow.value, unit: 'm³/h', label: '实时总流量', alarm: false },
-]);
-
-const topKpis = computed(() => [
-  { value: liveOnlineRate.value, unit: '%', label: '设备在线率' },
-  { value: mockData.cockpit.quality.dataCompleteRate, unit: '%', label: '数据完整率' },
-  { value: totalFlow.value, unit: 'm³/h', label: '实时总流量' },
 ]);
 
 /* ---------- 测点选择（联动曲线） ---------- */
@@ -457,8 +433,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .screen {
-  width: 1920px;
-  height: 1080px;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--well-deep);

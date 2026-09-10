@@ -1,6 +1,6 @@
 <!--
-  billing/Dashboard.vue — 收费服务大屏主视图（需求 §八 收费服务，1920×1080，v-scale-screen）
-  · 顶栏：@ui/TopBar（view=收费服务 · KPI 3 项 · 告警灯 = 欠费户数）
+  billing/Dashboard.vue — 收费服务大屏主视图（需求 §八 收费服务 · T1 弹性布局壳）
+  · 顶栏/侧栏职责已上收全局 AppShell/AppTopbar（告警灯口径见 AppTopbar）
   · KPI 条：用水户总数 / 抄表到户率 / 本月水费 / 收缴率 / 欠费户数 / 产销差率
   · 左列：用水户构成（5 类 MicroBar）+ 收缴率 6 个月趋势（TrendLine）
   · 中列：产销差三级水量对比（出厂总表/村级总表/用户分表，CSS 分组柱）+ 疑似漏损清单表
@@ -8,21 +8,8 @@
   · 数据：本页 mock.ts（确定性常量，口径见文件头注释）
 -->
 <template>
-  <VScaleScreen
-    :width="1920"
-    :height="1080"
-    :full-screen="false"
-    :box-style="{ background: '#030812' }"
-  >
-    <div class="screen">
-      <TopBar
-        view="收费服务"
-        :views="VIEW_OPTIONS"
-        :kpis="topKpis"
-        :alarm-count="kpi.arrearsUsers"
-      />
-
-      <!-- 顶部 KPI 条 -->
+  <div class="screen">
+    <!-- 顶部 KPI 条 -->
       <div class="kpi-strip" role="group" aria-label="收费服务关键指标">
         <div
           v-for="k in stripKpis"
@@ -176,13 +163,10 @@
         </div>
       </main>
     </div>
-  </VScaleScreen>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import VScaleScreen from 'v-scale-screen';
-import TopBar from '@ui/TopBar.vue';
 import KpiCard from '@ui/KpiCard.vue';
 import Panel from '@ui/Panel.vue';
 import TrendLine from '@charts/TrendLine.vue';
@@ -199,8 +183,6 @@ import {
 import type { LeakStatus, PayChannel } from './mock';
 
 /* ---------- 常量 ---------- */
-const VIEW_OPTIONS: string[] = ['收费服务', '按苏木乡镇', '按嘎查村'];
-
 /** 漏损排查状态 → 语义色（tokens.css 状态色唯一映射） */
 const LEAK_COLOR: Record<LeakStatus, string> = {
   待排查: 'var(--steppe-amber)',
@@ -218,7 +200,7 @@ const PAY_COLOR: Record<PayChannel, string> = {
 
 const kpi = billingKpi;
 
-/* ---------- KPI（顶栏 3 项 + KPI 条 6 项） ---------- */
+/* ---------- KPI（KPI 条 6 项） ---------- */
 const stripKpis = computed(() => [
   { value: kpi.totalUsers, unit: '户', label: '用水户总数', alarm: false },
   { value: kpi.meterRate, unit: '%', label: '抄表到户率', alarm: false },
@@ -226,12 +208,6 @@ const stripKpis = computed(() => [
   { value: kpi.collectionRate, unit: '%', label: '收缴率', alarm: false },
   { value: kpi.arrearsUsers, unit: '户', label: '欠费户数', alarm: true },
   { value: kpi.lossRate, unit: '%', label: '产销差率', alarm: false },
-]);
-
-const topKpis = computed(() => [
-  { value: kpi.totalUsers, unit: '户', label: '用水户总数' },
-  { value: kpi.monthFee, unit: '万元', label: '本月水费' },
-  { value: kpi.collectionRate, unit: '%', label: '收缴率' },
 ]);
 
 /* ---------- 用水户构成 ---------- */
@@ -270,8 +246,8 @@ function fmt(n: number): string {
 
 <style scoped>
 .screen {
-  width: 1920px;
-  height: 1080px;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--well-deep);

@@ -7,21 +7,8 @@
   · 右列：操作日志（敏感操作红标「敏感」）+ 外部接口状态（正常绿 / 异常红 / 未接入灰）
 -->
 <template>
-  <VScaleScreen
-    :width="1920"
-    :height="1080"
-    :full-screen="false"
-    :box-style="{ background: '#030812' }"
-  >
-    <div class="screen">
-      <TopBar
-        view="系统管理"
-        :views="VIEW_OPTIONS"
-        :kpis="topKpis"
-        :alarm-count="apiAbnormal"
-      />
-
-      <!-- 顶部 KPI 条（6 格） -->
+  <div class="screen">
+    <!-- 顶部 KPI 条（6 格） -->
       <div class="kpi-strip" role="group" aria-label="系统管理关键指标">
         <div
           v-for="k in stripKpis"
@@ -200,13 +187,10 @@
         </div>
       </main>
     </div>
-  </VScaleScreen>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue';
-import VScaleScreen from 'v-scale-screen';
-import TopBar from '@ui/TopBar.vue';
 import KpiCard from '@ui/KpiCard.vue';
 import Panel from '@ui/Panel.vue';
 import MicroBar from '@charts/MicroBar.vue';
@@ -220,9 +204,6 @@ import {
   TODAY_OPS,
 } from './mock';
 import type { OrgNode } from './mock';
-
-/* ---------- 顶栏 ---------- */
-const VIEW_OPTIONS: string[] = ['系统管理'];
 
 /* ---------- 组织树：拍平 + 缩进层级（末级人数 = 直挂口径，上级 = 子树合计） ---------- */
 interface FlatOrg {
@@ -286,20 +267,14 @@ const stripKpis = [
   { value: reviewDue, unit: '个', label: '权限复核到期数', alarm: true },
 ];
 
-const topKpis = [
-  { value: accountTotal, unit: '个', label: '账户总数' },
-  { value: TODAY_OPS, unit: '次', label: '今日操作' },
-  { value: reviewDue, unit: '个', label: '复核到期' },
-];
-
 /** 接口状态 → 圆点/文案色 */
 const apiDot = { 正常: 'ok', 异常: 'bad', 未接入: 'na' } as const;
 </script>
 
 <style scoped>
 .screen {
-  width: 1920px;
-  height: 1080px;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--well-deep);

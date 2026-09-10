@@ -1,50 +1,61 @@
 <!--
-  pipe-network/Dashboard.vue — 旗县供水统管大屏主视图（1920×1080）
-  视觉标准：preview.html + design-system §5 / §11
-  · 中央：WebGL Stage（Track A）+ Legend/CityToggle 浮层
-  · 左列：CockpitPanel · 右列：AlertList + MonitorPanel
-  · 趋势带：左 TrendLine（取/供/售 24h）/ 右 SparkLine（瞬时流量·压力）
-  · 点位点击 → ModelViewer 浮窗（仅 A 级；其他级别静默）
-  · 全部数据从 mockData 取（1 期 USE_MOCK 恒 true）
+  pipe-network/Dashboard.vue — 工程一张图（v8 · SVG MapCanvas 版）
+  视觉标准：tokens.css + 事件地图同款技术栈（T2 轨道产出）
+  · 中央：MapCanvas 九层 SVG（双线边界/choropleth 在线率/管线 DN/工程点形状编码/告警脉冲/扫光/入场编排）
+  · 右上：图层开关 chip 组（数据过滤驱动）· 复位按钮
+  · 左列：CockpitPanel · 右列：详情卡（工程/告警）+ AlertList + MonitorPanel
+  · 趋势带：TrendLine（取/供/售 24h）/ SparkLine（瞬时流量·压力）
+  · 数据：mock 起步 → /api/* 水合覆盖（projects/monitors/pipes/alerts）+ realtime 四频道
 -->
 <template>
   <DashboardLayout>
-    <!-- 中央 WebGL 一张图 -->
+    <!-- 中央 SVG 一张图 -->
     <template #map>
-      <div ref="stageRef" class="stage-host" aria-label="工程一张图">
-        <!-- Stage 容器；createStage 在 onMounted 注入 canvas -->
-        <div v-if="!stageReady" class="stage-placeholder">
-          <div class="ph-grid" aria-hidden="true"></div>
-          <span class="ph-text">WebGL 渲染中 · 等待 Stage 初始化</span>
-        </div>
+      <div class="map-host">
+        <MapCanvas
+          ref="mapRef"
+          :projects="liveProjects"
+          :monitors="layerFiltered.monitors"
+          :pipes="layerFiltered.pipes"
+          :alerts="layerFiltered.alerts"
+          :selected-project-id="selectedProject?.id ?? null"
+          @project-click="onProjectClick"
+          @alert-click="onAlertClick"
+        />
 
-        <!-- 地图左下：图例浮层 -->
-        <div class="overlay legend-slot">
-          <Legend
-            :projects="legendProjects"
-            :alarms="legendAlarms"
-            @toggle-grade="onToggleGrade"
-            @toggle-status="onToggleStatus"
-          />
-        </div>
-
-        <!-- 地图右上：镇区建筑群控件 + 一键复位视角 -->
-        <div class="overlay city-slot">
-          <CityToggle
-            v-model:enabled="cityOn"
-            v-model:density="cityDensity"
-          />
+        <!-- 右上：图层开关 chip 组 + 复位 -->
+        <div class="overlay chips-slot">
           <button
-            class="reset-view"
-            title="复位视角（回初始 25° 俯仰 + 旗县居中）"
-            @click="resetCamera"
-          >⌖ 复位视角</button>
+            v-for="c in LAYER_CHIPS"
+            :key="c.key"
+            type="button"
+            class="chip"
+            :class="{ off: !layers[c.key] }"
+            :style="{ '--chip-c': c.color }"
+            @click="layers[c.key] = !layers[c.key]"
+          >{{ c.label }}</button>
+          <button class="chip reset" title="复位视角" @click="mapRef?.reset()">⌖ 复位</button>
         </div>
       </div>
     </template>
 
-    <!-- 右列：实时告警（alert 频道置顶）+ 水质/运维微条 -->
+    <!-- 右列：详情卡（工程/告警互斥）+ 实时告警 + 水质/运维微条 -->
     <template #right>
+      <Panel
+        v-if="detail"
+        :variant="detail.kind === 'alert' ? 'alarm' : 'default'"
+        :title="detail.kind === 'alert' ? '告警详情' : '工程详情'"
+        :sub="detail.id"
+        class="detail-card"
+      >
+        <div class="dfields">
+          <div class="df"><span class="k">{{ detail.kind === 'alert' ? '位置' : '所属' }}</span><span class="v2" :title="detail.rows.location">{{ detail.rows.location }}</span></div>
+          <div class="df"><span class="k">{{ detail.kind === 'alert' ? '等级' : '分级' }}</span><span class="v2">{{ detail.rows.grade }}</span></div>
+          <div class="df"><span class="k">状态</span><span class="v2">{{ detail.rows.status }}</span></div>
+          <div class="df"><span class="k">责任人</span><span class="v2">{{ detail.rows.owner }}</span></div>
+        </div>
+        <div class="ddesc">{{ detail.rows.desc }}</div>
+      </Panel>
       <AlertList :alerts="liveAlerts" />
       <MonitorPanel />
     </template>
@@ -89,107 +100,112 @@
         </div>
       </Panel>
     </template>
-
-    <!-- 3D 详情浮窗（A 级才打开） -->
-    <ModelViewer
-      v-model:open="viewerOpen"
-      :project="viewerProject"
-      :origin="viewerOrigin"
-    />
   </DashboardLayout>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import DashboardLayout from '@/views/DashboardLayout.vue';
 import Panel from '@ui/Panel.vue';
-import Legend from '@ui/Legend.vue';
-import CityToggle from '@ui/CityToggle.vue';
-import ModelViewer from '@ui/ModelViewer.vue';
 import TrendLine from '@charts/TrendLine.vue';
 import SparkLine from '@charts/SparkLine.vue';
-import createStage from '@canvas/Stage';
-import type { Stage } from '@canvas/Stage';
+import MapCanvas from '@/components/map/MapCanvas.vue';
 import { mockData } from '@mock/index';
 import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
 import { mapProject, mapMonitor, mapPipe, mapAlert, unpackItems } from '@shared/backend';
 import AlertList from './AlertList.vue';
 import MonitorPanel from './MonitorPanel.vue';
-import type { Project, Status, Grade, EmergencyEvent } from '@shared/types';
+import type { EmergencyEvent, MonitorPoint, PipeSegment, Project } from '@shared/types';
 
-type CityDensity = 'low' | 'mid' | 'high';
-const STATUS_ORDER: Status[] = ['normal', 'alarm', 'repair', 'stop', 'offline'];
-
-/* ---------- Stage 引用 ---------- */
-const stageRef = ref<HTMLDivElement | null>(null);
-let stage: Stage | null = null;
-const stageReady = ref(false);
-
-/* ---------- 全局状态（Track A 图层显隐/密度，1 期由本视图持有）---------- */
-const cityOn = ref(true);
-const cityDensity = ref<CityDensity>('mid');
-const hiddenGrades = ref<Set<Grade>>(new Set());
-
-/* ---------- ModelViewer 状态 ---------- */
-const viewerOpen = ref(false);
-const viewerProject = ref<Project | null>(null);
-const viewerOrigin = ref<{ x: number; y: number } | null>(null);
-const kpiOnlineRate = ref(91.6);
-
-/* ---------- 工程数据（mock 起步 → 后端 /api/projects 水合覆盖） ---------- */
+/* ---------- 实时数据（mock 起步 → /api/* 水合覆盖；MapCanvas 响应式跟随） ---------- */
 const liveProjects = ref<Project[]>(mockData.projects);
+const liveMonitors = ref<MonitorPoint[]>(mockData.monitors);
+const livePipes = ref<PipeSegment[]>(mockData.pipes);
+const liveAlerts = ref<EmergencyEvent[]>([...mockData.alerts]);
+const INITIAL_MOCK_IDS = new Set(mockData.alerts.map((a) => a.id));
+const offs: Array<() => void> = [];
 
-/* ---------- 派生：Legend 计数 ---------- */
-const legendProjects = computed(() => {
-  const cnt: Partial<Record<Grade, number>> = { A: 0, B: 0, C: 0, D: 0 };
-  for (const p of liveProjects.value) cnt[p.grade] = (cnt[p.grade] ?? 0) + 1;
-  return cnt;
-});
-const legendAlarms = computed(() => {
-  const cnt: Partial<Record<Status, number>> = {};
-  for (const s of STATUS_ORDER) cnt[s] = mockData.cockpit.statusBreakdown[s] ?? 0;
-  return cnt;
+/* ---------- 图层开关（数据过滤驱动 · 工程点常显） ---------- */
+const LAYER_CHIPS = [
+  { key: 'pipes', label: '管网', color: 'var(--flood-teal)' },
+  { key: 'monitors', label: '监测', color: 'var(--spring-green)' },
+  { key: 'alerts', label: '告警', color: 'var(--status-alarm)' },
+] as const;
+type LayerKey = (typeof LAYER_CHIPS)[number]['key'];
+const layers = ref<Record<LayerKey, boolean>>({ pipes: true, monitors: true, alerts: true });
+
+const layerFiltered = computed(() => ({
+  monitors: layers.value.monitors ? liveMonitors.value : [],
+  pipes: layers.value.pipes ? livePipes.value : [],
+  alerts: layers.value.alerts ? liveAlerts.value : [],
+}));
+
+/* ---------- 选中详情（工程/告警互斥） ---------- */
+const mapRef = ref<InstanceType<typeof MapCanvas> | null>(null);
+const selectedProject = ref<Project | null>(null);
+const selectedAlert = ref<EmergencyEvent | null>(null);
+
+interface DetailView {
+  kind: 'project' | 'alert';
+  id: string;
+  rows: { location: string; grade: string; status: string; owner: string; desc: string };
+}
+const detail = computed<DetailView | null>(() => {
+  if (selectedProject.value) {
+    const p = selectedProject.value;
+    return {
+      kind: 'project', id: p.id,
+      rows: { location: p.suMu, grade: `${p.grade} 级`, status: p.status, owner: p.responsible || '—', desc: p.name },
+    };
+  }
+  if (selectedAlert.value) {
+    const a = selectedAlert.value;
+    return {
+      kind: 'alert', id: a.id,
+      rows: { location: a.location, grade: a.level, status: a.status, owner: a.receivedBy || '待派单', desc: a.description },
+    };
+  }
+  return null;
 });
 
-/* ---------- 派生：趋势带（24h 序列）---------- */
+function onProjectClick(p: Project): void {
+  selectedProject.value = p;
+  selectedAlert.value = null;
+  mapRef.value?.focus(p.coord[0], p.coord[1]);
+}
+
+function onAlertClick(a: EmergencyEvent): void {
+  selectedAlert.value = a;
+  selectedProject.value = null;
+  // BX- 报修无工程坐标，仅选中不聚焦
+  const coord = a.projectId ? liveProjects.value.find((p) => p.id === a.projectId)?.coord : undefined;
+  if (coord) mapRef.value?.focus(coord[0], coord[1]);
+}
+
+/* ---------- 派生：趋势带（24h 序列，确定性） ---------- */
 const trendLabels = computed(() => {
-  // 24 个整点标签
   const arr: string[] = [];
   for (let h = 0; h < 24; h++) arr.push(`${String(h).padStart(2, '0')}:00`);
   return arr;
 });
-/** 取/供/售水量 — 基于 mockData.cockpit.todaySupply 按日曲线缩放（确定性） */
 const trendSeries = computed(() => {
   const base = mockData.cockpit.water.todaySupply * 1000; // 万 m³ → m³
-  // 日内 24h 形状：早 8 / 晚 8 双峰（与 monitors.ts genHistory 同源）
   const take = (i: number) => {
     const phase = (i / 24) * Math.PI * 2;
     return base * (0.06 + 0.05 * Math.sin(phase - Math.PI / 2));
   };
-  // 供水略低于取水（漏损 18.1%），售水再低 8%
   const supply = (i: number) => take(i) * 0.819;
   const sold = (i: number) => supply(i) * 0.92;
-  const takeData = Array.from({ length: 24 }, (_, i) => Math.round(take(i)));
-  const supplyData = Array.from({ length: 24 }, (_, i) => Math.round(supply(i)));
-  const soldData = Array.from({ length: 24 }, (_, i) => Math.round(sold(i)));
   return [
-    { name: '取水量', data: takeData },
-    { name: '供水量', data: supplyData },
-    { name: '售水量', data: soldData },
+    { name: '取水量', data: Array.from({ length: 24 }, (_, i) => Math.round(take(i))) },
+    { name: '供水量', data: Array.from({ length: 24 }, (_, i) => Math.round(supply(i))) },
+    { name: '售水量', data: Array.from({ length: 24 }, (_, i) => Math.round(sold(i))) },
   ];
 });
 
-/* ---------- 实时状态（realtime 引擎驱动） ---------- */
-const liveAlerts = ref<EmergencyEvent[]>([...mockData.alerts]);
-const offs: Array<() => void> = [];
-
-/* ---------- 派生：右侧 SparkLine（瞬时流量 / 压力） ---------- */
-/** 初始 24 点形态：类型中位数 + 双峰（与 monitors.ts genHistory 同源），实时值由 monitor 频道滚动追加 */
+/* ---------- 派生：SparkLine（瞬时流量 / 压力，monitor 频道滚动追加） ---------- */
 function buildFlowSeries(): number[] {
-  const flows = mockData.monitors
-    .filter((m) => m.type === 'flow')
-    .map((m) => m.value)
-    .sort((a, b) => a - b);
+  const flows = mockData.monitors.filter((m) => m.type === 'flow').map((m) => m.value).sort((a, b) => a - b);
   const mid = flows[Math.floor(flows.length / 2)] ?? 80;
   return Array.from({ length: 24 }, (_, i) => {
     const phase = (i / 24) * Math.PI * 2;
@@ -197,10 +213,7 @@ function buildFlowSeries(): number[] {
   });
 }
 function buildPressureSeries(): number[] {
-  const pres = mockData.monitors
-    .filter((m) => m.type === 'pressure')
-    .map((m) => m.value)
-    .sort((a, b) => a - b);
+  const pres = mockData.monitors.filter((m) => m.type === 'pressure').map((m) => m.value).sort((a, b) => a - b);
   const mid = pres[Math.floor(pres.length / 2)] ?? 0.3;
   return Array.from({ length: 24 }, (_, i) => {
     const phase = (i / 24) * Math.PI * 2;
@@ -210,36 +223,20 @@ function buildPressureSeries(): number[] {
 const flowSeries = ref<number[]>(buildFlowSeries());
 const pressureSeries = ref<number[]>(buildPressureSeries());
 
-/* ---------- 高度：趋势带可用高度 ≈ 176 - 顶栏 48 - panel 标题 ≈ 110 ---------- */
 const trendHeight = 110;
 const sparkHeight = 48;
 
-/** 一键复位视角：回初始 25° 俯仰 + 旗县居中 + 默认缩放（模板可调） */
-function resetCamera(): void {
-  stage?.setCityBBoxFromBase();
-}
-
-/* ---------- Stage 接线 ---------- */
+/* ---------- 生命周期：引擎 + 频道订阅 + 水合 ---------- */
 onMounted(() => {
-  if (!stageRef.value) return;
-  stage = createStage(stageRef.value);
-
-  // 实时数据引擎（1 期 mock 模拟 · 2 期切 SSE）
   realtime.start({ monitors: mockData.monitors, alertPool: mockData.alerts });
 
-  offs.push(onRealtime('kpi', (evt) => {
-    const d = evt.data as Record<string, number>;
-    if (d.onlineRate) kpiOnlineRate.value = d.onlineRate;
-  }));
-
-  // 新告警置顶（上限 12 条，与滚动列表容量匹配）
   offs.push(onRealtime('alert', (evt) => {
     liveAlerts.value = [evt.data as unknown as EmergencyEvent, ...liveAlerts.value].slice(0, 12);
   }));
 
-  // 瞬时流量/压力曲线滚动追加（24 点窗口）
   offs.push(onRealtime('monitor', (evt) => {
-    const points = evt.data.points as Array<{ type: string; value: number }>;
+    const points = evt.data.points as Array<{ id: string; type: string; value: number }>;
+    // 曲线滚动 + liveMonitors 值更新（MapCanvas 响应式跟随）
     for (const pt of points) {
       if (pt.type === 'flow') {
         flowSeries.value.push(Math.round(pt.value));
@@ -249,79 +246,45 @@ onMounted(() => {
         pressureSeries.value.shift();
       }
     }
+    liveMonitors.value = liveMonitors.value.map((m) => {
+      const hit = points.find((pt) => pt.id === m.id);
+      return hit ? { ...m, value: hit.value } : m;
+    });
   }));
 
-  // 喂入业务数据（mock 起步；真数据由 hydrate* 异步覆盖）
-  stage.setProjects(liveProjects.value);
-  stage.setPipes(mockData.pipes);
-  stage.setMonitors(mockData.monitors);
-  stage.setAlerts(mockData.alerts);
   void hydrateProjects();
   void hydrateMonitors();
   void hydratePipes();
   void hydrateAlerts();
-
-  // 城市场景需要 base bbox（Track A 在 BaseMap init 时异步拿 banner.json）
-  // 安排一个微任务重试，确保首次拿到 bbox
-  // banner 异步加载完成后飞相机 — 轮询直到成功（fetch 时序不确定，固定延时不可靠）
-  const flyTimer = setInterval(() => {
-    if (stage?.setCityBBoxFromBase()) {
-      clearInterval(flyTimer);
-    }
-  }, 400);
-  setTimeout(() => clearInterval(flyTimer), 15000); // 15s 兜底停表
-
-  // 飞线（流量监测点 → 任一 A 级水厂工厂）
-  const flowMonitors = mockData.monitors.filter((m) => m.type === 'flow');
-  const factory = liveProjects.value.find((p) => p.grade === 'A' && p.status === 'normal') ?? liveProjects.value[0];
-  if (factory) stage.setFlyLines(flowMonitors.slice(0, 6), factory);
-
-  // 城市密度同步
-  stage.setCityDensity(cityDensity.value);
-
-  // 点击事件 → 打开 ModelViewer（仅 A 级）
-  stage.on('layer:click', (payload) => {
-    const id = String(payload ?? '');
-    const proj = liveProjects.value.find((p) => p.id === id);
-    if (!proj) return;
-    if (proj.grade !== 'A') return; // §11.2 仅 A 级进入 3D
-    viewerProject.value = proj;
-    viewerOrigin.value = null; // 1 期默认中心；如需锚点可读取 pointer 位置
-    viewerOpen.value = true;
-  });
-
-  stageReady.value = true;
 });
 
-/** 后端 /api/projects 水合：真工程覆盖 mock（失败静默保留 mock） */
+onBeforeUnmount(() => {
+  realtime.stop();
+  offs.forEach((off) => off());
+});
+
+/** 后端 /api/projects 水合（失败静默保留 mock） */
 async function hydrateProjects(): Promise<void> {
   const items = unpackItems(await apiFetch('/api/projects'));
-  if (!items || !stage) return;
-  const projects = items.map(mapProject);
-  liveProjects.value = projects;
-  stage.setProjects(projects); // 图层可重入（PlantLayer 先清旧再建）
-  // 飞线终点随真厂归位
-  const flowMonitors = mockData.monitors.filter((m) => m.type === 'flow');
-  const factory = projects.find((p) => p.grade === 'A' && p.status === 'normal') ?? projects[0];
-  if (factory) stage.setFlyLines(flowMonitors.slice(0, 6), factory);
+  if (!items?.length) return;
+  liveProjects.value = items.map(mapProject);
 }
 
-/** 后端 /api/monitors 水合：真监测点覆盖 mock（位置归位真实苏木周边） */
+/** 后端 /api/monitors 水合 */
 async function hydrateMonitors(): Promise<void> {
   const items = unpackItems(await apiFetch('/api/monitors'));
-  if (!items || !stage) return;
-  stage.setMonitors(items.map(mapMonitor));
+  if (!items?.length) return;
+  liveMonitors.value = items.map(mapMonitor);
 }
 
-/** 后端 /api/pipes 水合：真管段覆盖 mock（连接真实工程对） */
+/** 后端 /api/pipes 水合 */
 async function hydratePipes(): Promise<void> {
   const items = unpackItems(await apiFetch('/api/pipes'));
-  if (!items || !stage) return;
-  stage.setPipes(items.map(mapPipe));
+  if (!items?.length) return;
+  livePipes.value = items.map(mapPipe);
 }
 
-/** 后端 /api/alerts 水合：真存量覆盖 mock（置顶保留已到的 SSE 增量防竞态） */
-const INITIAL_MOCK_IDS = new Set(mockData.alerts.map((a) => a.id));
+/** 后端 /api/alerts 水合（置顶保留 SSE 增量防竞态） */
 async function hydrateAlerts(): Promise<void> {
   const items = unpackItems(await apiFetch('/api/alerts'));
   if (!items?.length) return;
@@ -329,95 +292,81 @@ async function hydrateAlerts(): Promise<void> {
   const pending = liveAlerts.value.filter((a) => !stock.has(a.id) && !INITIAL_MOCK_IDS.has(a.id));
   liveAlerts.value = [...pending, ...items.map(mapAlert)].slice(0, 12);
 }
-
-onBeforeUnmount(() => {
-  realtime.stop();
-  offs.forEach((off) => off());
-  if (stage) {
-    stage.dispose();
-    stage = null;
-  }
-});
-
-/* ---------- 联动：cityOn / cityDensity / Legend 显隐 ---------- */
-watch(cityOn, (v) => {
-  if (!stage) return;
-  stage.setLayerVisible('City', v);
-});
-watch(cityDensity, (v) => {
-  if (!stage) return;
-  stage.setCityDensity(v);
-});
-
-function onToggleGrade(grade: Grade, visible: boolean) {
-  if (!stage) return;
-  // ProjectLayer 内部按 grade 过滤：这里重新 setProjects，但只切可见性
-  // 简化：直接 setLayerVisible（全部 Project 显隐）；如需更细可调 Track A 扩展
-  const next = new Set(hiddenGrades.value);
-  if (visible) next.delete(grade);
-  else next.add(grade);
-  hiddenGrades.value = next;
-  // 当前简化：只要隐藏集合非空就关掉 Project 层（避免做精细过滤）
-  stage.setLayerVisible('Project', next.size === 0);
-}
-function onToggleStatus(_status: Status, _visible: boolean) {
-  // ProjectLayer 的状态着色由 setProjects 决定；隐藏状态通过视觉重渲染由 Stage 内部处理
-  // 此处保留入口，1 期 no-op
-}
 </script>
 
 <style scoped>
-/* ===== 中央 WebGL 容器 ===== */
-.stage-host {
+.map-host {
   position: absolute;
   inset: 0;
   overflow: hidden;
 }
-.stage-placeholder {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: radial-gradient(
-    ellipse 70% 60% at 50% 45%,
-    #0e2a4a 0%,
-    var(--surface-blue) 45%,
-    var(--well-deep) 100%
-  );
-}
-.stage-placeholder .ph-grid {
-  position: absolute;
-  inset: 8% 6%;
-  background:
-    repeating-linear-gradient(0deg, rgba(0, 194, 255, 0.07) 0 1px, transparent 1px 64px),
-    repeating-linear-gradient(90deg, rgba(0, 194, 255, 0.07) 0 1px, transparent 1px 64px);
-  mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, #000 30%, transparent 80%);
-  pointer-events: none;
-}
-.ph-text {
-  position: relative;
-  color: var(--text-dim);
-  font-size: 13px;
-  letter-spacing: 1px;
-}
 
-/* ===== 浮层：图例 + 镇区建筑群 ===== */
-.overlay {
+/* 图层开关 chip 组（右上常驻） */
+.overlay.chips-slot {
   position: absolute;
   z-index: 3;
-  pointer-events: auto;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
 }
-.legend-slot {
-  left: 16px;
-  bottom: 16px;
+.chip {
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--chip-c, var(--flood-teal));
+  background: rgba(3, 8, 18, 0.8);
+  border: 1px solid var(--line-vein);
+  border-left: 2px solid var(--chip-c, var(--flood-teal));
+  border-radius: 2px;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
 }
-.city-slot {
-  right: 16px;
-  top: 16px;
+.chip.off {
+  opacity: 0.45;
+  color: var(--text-dim);
+  border-left-color: var(--text-dim);
+}
+.chip.reset {
+  color: var(--spring-green);
+  border-left-color: var(--spring-green);
+}
+.chip:hover { opacity: 1; }
+
+/* 详情卡（右列顶部） */
+.detail-card { flex: none; }
+.dfields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+  margin-bottom: 8px;
+}
+.df {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  min-width: 0;
+  line-height: 1.5;
+}
+.df .k { flex: none; color: var(--text-dim); }
+.df .v2 {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ddesc {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  border-left: 3px solid var(--flood-teal);
+  background: rgba(0, 194, 255, 0.06);
+  padding: 5px 10px;
+  border-radius: 0 var(--radius) var(--radius) 0;
 }
 
-/* ===== 趋势带内 ===== */
+/* 趋势带内 */
 .dot {
   display: inline-block;
   width: 7px;
@@ -438,23 +387,5 @@ function onToggleStatus(_status: Status, _visible: boolean) {
   flex: 1;
   min-height: 0;
   justify-content: center;
-}
-</style>
-
-<style scoped>
-.reset-view {
-  display: block;
-  width: 100%;
-  margin-top: 6px;
-  padding: 5px 0;
-  font-size: 12px;
-  color: var(--spring-green, #00ffe0);
-  background: rgba(7, 21, 37, 0.85);
-  border: 1px solid rgba(0, 255, 224, 0.4);
-  border-radius: 2px;
-  cursor: pointer;
-}
-.reset-view:hover {
-  background: rgba(0, 255, 224, 0.12);
 }
 </style>

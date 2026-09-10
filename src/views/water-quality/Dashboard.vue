@@ -1,6 +1,6 @@
 <!--
-  water-quality/Dashboard.vue — 水质管理大屏（需求 §五 水质安全管理）
-  · v-scale-screen 1920×1080
+  water-quality/Dashboard.vue — 水质管理大屏（需求 §五 水质安全管理 · T1 弹性布局壳）
+  · 顶栏/侧栏职责已上收全局 AppShell/AppTopbar
   · 顶部 KPI 条：水质合格率 / 余氯均值 / 浊度均值 / pH 均值 / 超标次数
   · 左列：监测点水质指标（浊度/余氯/pH，超标红色）；中列：24h 浊度·余氯 + pH 趋势（TrendLine）
   · 右列：采样计划完成率（MiniRings）+ 超标事件与处置状态
@@ -8,16 +8,8 @@
   · 数据源：mockData.monitors(type=quality) + cockpit + alerts，余氯/pH 按监测点种子确定性衍生
 -->
 <template>
-  <VScaleScreen
-    :width="1920"
-    :height="1080"
-    :full-screen="false"
-    :box-style="{ background: '#030812' }"
-  >
-    <div class="screen">
-      <TopBar />
-
-      <!-- 顶部 KPI 条 -->
+  <div class="screen">
+    <!-- 顶部 KPI 条 -->
       <div class="kpi-strip">
         <div class="kpi-cell">
           <KpiCard :value="kpi.qualifiedRate" unit="%" label="水质合格率" glow />
@@ -148,13 +140,10 @@
         </div>
       </main>
     </div>
-  </VScaleScreen>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import VScaleScreen from 'v-scale-screen';
-import TopBar from '@ui/TopBar.vue';
 import Panel from '@ui/Panel.vue';
 import KpiCard from '@ui/KpiCard.vue';
 import TrendLine from '@charts/TrendLine.vue';
@@ -385,8 +374,8 @@ const stageRings = computed(() => [
 
 <style scoped>
 .screen {
-  width: 1920px;
-  height: 1080px;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--well-deep);

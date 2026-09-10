@@ -229,13 +229,24 @@ import type { EmergencyResource } from './ResourcePanel.vue';
 import EventTimeline from './EventTimeline.vue';
 import ImpactAnalysis from './ImpactAnalysis.vue';
 import { mockData } from '@mock/index';
-import { realtime, onRealtime } from '@/composables/realtime';
+import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
+import { mapAlert, unpackItems } from '@shared/backend';
 import type { EmergencyEvent } from '@shared/types';
 import { SUMU_CENTERS } from '@shared/sumu-anchors';
 
 /* ================= 数据源 ================= */
 /** 实时告警池（alert 频道置顶追加 · 初始 = mock 基线） */
 const liveAlerts = ref<EmergencyEvent[]>([...mockData.alerts]);
+
+/** 后端 /api/alerts 水合：真存量覆盖 mock（置顶保留已到的 SSE 增量防竞态） */
+const INITIAL_MOCK_IDS = new Set(mockData.alerts.map((a) => a.id));
+async function hydrateAlerts(): Promise<void> {
+  const items = unpackItems(await apiFetch('/api/alerts'));
+  if (!items?.length) return;
+  const stock = new Set(items.map((a) => String(a.id)));
+  const pending = liveAlerts.value.filter((a) => !stock.has(a.id) && !INITIAL_MOCK_IDS.has(a.id));
+  liveAlerts.value = [...pending, ...items.map(mapAlert)].slice(0, 15);
+}
 const projectCoord = new Map(mockData.projects.map((p) => [p.id, p.coord]));
 
 const unsignedCount = computed(() => liveAlerts.value.filter((a) => a.status === '未签收').length);
@@ -388,6 +399,7 @@ onMounted(async () => {
   offs.push(onRealtime('alert', (evt) => {
     liveAlerts.value = [evt.data as unknown as EmergencyEvent, ...liveAlerts.value].slice(0, 15);
   }));
+  void hydrateAlerts();
 
   try {
     const fc = await fetchGeo(`${import.meta.env.BASE_URL}geo/banner.json`);

@@ -2,7 +2,7 @@
  * backend.ts — nano-api 数据 → 前端 shared 类型映射
  * 水合帮手：字段适配（code→id / su_mu→suMu / lon,lat→coord）+ 缺失字段合成（history 曲线）
  */
-import type { Grade, MonitorPoint, PipeSegment, Project, Status } from '@shared/types';
+import type { EmergencyEvent, Grade, MonitorPoint, PipeSegment, Project, Status } from '@shared/types';
 
 type ProjectRow = Record<string, unknown>;
 type MonitorRow = Record<string, unknown>;
@@ -69,8 +69,16 @@ export function mapPipe(p: Record<string, unknown>): PipeSegment {
   };
 }
 
+/** 告警行 → EmergencyEvent（后端已 camelCase，补 time 兜底） */
+export function mapAlert(a: Record<string, unknown>): EmergencyEvent {
+  return {
+    ...(a as unknown as EmergencyEvent),
+    time: String(a.time ?? new Date().toISOString()),
+  };
+}
+
 /** 解包 nano-api 统一响应 {code, data:{total, items}} */
-export function unpackItems<T = never>(payload: unknown): T[] | null {
+export function unpackItems<T = Record<string, unknown>>(payload: unknown): T[] | null {
   const d = payload as { items?: T[] } | null;
   return d?.items?.length ? d.items : null;
 }

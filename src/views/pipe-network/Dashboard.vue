@@ -112,7 +112,7 @@ import createStage from '@canvas/Stage';
 import type { Stage } from '@canvas/Stage';
 import { mockData } from '@mock/index';
 import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
-import { mapProject, mapMonitor, mapPipe, unpackItems } from '@shared/backend';
+import { mapProject, mapMonitor, mapPipe, mapAlert, unpackItems } from '@shared/backend';
 import AlertList from './AlertList.vue';
 import MonitorPanel from './MonitorPanel.vue';
 import type { Project, Status, Grade, EmergencyEvent } from '@shared/types';
@@ -259,6 +259,7 @@ onMounted(() => {
   void hydrateProjects();
   void hydrateMonitors();
   void hydratePipes();
+  void hydrateAlerts();
 
   // 城市场景需要 base bbox（Track A 在 BaseMap init 时异步拿 banner.json）
   // 安排一个微任务重试，确保首次拿到 bbox
@@ -317,6 +318,16 @@ async function hydratePipes(): Promise<void> {
   const items = unpackItems(await apiFetch('/api/pipes'));
   if (!items || !stage) return;
   stage.setPipes(items.map(mapPipe));
+}
+
+/** 后端 /api/alerts 水合：真存量覆盖 mock（置顶保留已到的 SSE 增量防竞态） */
+const INITIAL_MOCK_IDS = new Set(mockData.alerts.map((a) => a.id));
+async function hydrateAlerts(): Promise<void> {
+  const items = unpackItems(await apiFetch('/api/alerts'));
+  if (!items?.length) return;
+  const stock = new Set(items.map((a) => String(a.id)));
+  const pending = liveAlerts.value.filter((a) => !stock.has(a.id) && !INITIAL_MOCK_IDS.has(a.id));
+  liveAlerts.value = [...pending, ...items.map(mapAlert)].slice(0, 12);
 }
 
 onBeforeUnmount(() => {

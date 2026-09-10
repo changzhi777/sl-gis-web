@@ -138,7 +138,7 @@ import ProcessFlow from './ProcessFlow.vue';
 import AlarmTable from './AlarmTable.vue';
 import { mockData } from '@mock/index';
 import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
-import { mapMonitor, unpackItems } from '@shared/backend';
+import { mapMonitor, mapAlert, unpackItems } from '@shared/backend';
 import { MONITOR_COLOR, STATUS_COLOR } from '@shared/types';
 import type { EmergencyEvent, MonitorPoint, Project, Status } from '@shared/types';
 
@@ -181,6 +181,17 @@ async function hydrateMonitors(): Promise<void> {
   liveMonitors.value = items.map(mapMonitor);
 }
 const liveAlerts = ref<EmergencyEvent[]>([...mockData.alerts]);
+/** 初始 mock id 集合：真存量水合时丢弃 mock，仅保留 SSE 真增量 */
+const INITIAL_MOCK_IDS = new Set(mockData.alerts.map((a) => a.id));
+
+/** 后端 /api/alerts 水合：真存量覆盖 mock（置顶保留已到的 SSE 增量防竞态） */
+async function hydrateAlerts(): Promise<void> {
+  const items = unpackItems(await apiFetch('/api/alerts'));
+  if (!items?.length) return;
+  const stock = new Set(items.map((a) => String(a.id)));
+  const pending = liveAlerts.value.filter((a) => !stock.has(a.id) && !INITIAL_MOCK_IDS.has(a.id));
+  liveAlerts.value = [...pending, ...items.map(mapAlert)].slice(0, 12);
+}
 /** pump 频道快照：projectId → 泵组/电流/管压 */
 interface PumpSnapshot {
   projectId: string;
@@ -406,6 +417,7 @@ const worstItems = computed(() =>
 /* ---------- realtime 引擎接线（1 期 mock · 2 期切 SSE） ---------- */
 onMounted(() => {
   void hydrateMonitors();
+  void hydrateAlerts();
   realtime.start({
     monitors: mockData.monitors,
     alertPool: mockData.alerts,

@@ -200,7 +200,6 @@ export class Stage {
     addLayer(fly);
     addLayer(city);
     addLayer(model);
-    addLayer(plant);
   }
 
   private bindDom(): void {
@@ -281,7 +280,7 @@ export class Stage {
   private async fetchBoundaryForWall(alert: AlertLayer | null, _bbox: unknown): Promise<void> {
     if (!alert) return;
     try {
-      const r = await fetch('/geo/banner.json');
+      const r = await fetch(`${import.meta.env.BASE_URL}geo/banner.json`);
       const fc = (await r.json()) as GeoJSON.FeatureCollection;
       for (const f of fc.features) {
         const g = f.geometry;

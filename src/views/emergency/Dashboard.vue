@@ -219,7 +219,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import VScaleScreen from 'v-scale-screen';
 import TopBar from '@ui/TopBar.vue';
 import Panel from '@ui/Panel.vue';
@@ -229,27 +229,29 @@ import type { EmergencyResource } from './ResourcePanel.vue';
 import EventTimeline from './EventTimeline.vue';
 import ImpactAnalysis from './ImpactAnalysis.vue';
 import { mockData } from '@mock/index';
+import { realtime, onRealtime } from '@/composables/realtime';
 import type { EmergencyEvent } from '@shared/types';
 import { SUMU_CENTERS } from '@shared/sumu-anchors';
 
 /* ================= 数据源 ================= */
-const alerts: readonly EmergencyEvent[] = mockData.alerts;
+/** 实时告警池（alert 频道置顶追加 · 初始 = mock 基线） */
+const liveAlerts = ref<EmergencyEvent[]>([...mockData.alerts]);
 const projectCoord = new Map(mockData.projects.map((p) => [p.id, p.coord]));
 
-const unsignedCount = alerts.filter((a) => a.status === '未签收').length;
-const handlingCount = alerts.filter(
-  (a) => a.status === '已派单' || a.status === '已签收',
-).length;
-const majorCount = alerts.filter((a) => a.level === '重大').length;
+const unsignedCount = computed(() => liveAlerts.value.filter((a) => a.status === '未签收').length);
+const handlingCount = computed(() =>
+  liveAlerts.value.filter((a) => a.status === '已派单' || a.status === '已签收').length,
+);
+const majorCount = computed(() => liveAlerts.value.filter((a) => a.level === '重大').length);
 
 /** KPI 条（平均响应时间取行业基准 26min，mock 基准值） */
-const stripKpis = [
-  { label: '今日事件数', value: alerts.length, unit: '', tone: 'c-teal' },
-  { label: '未签收', value: unsignedCount, unit: '', tone: 'c-red' },
-  { label: '处置中', value: handlingCount, unit: '', tone: 'c-amber' },
+const stripKpis = computed(() => [
+  { label: '今日事件数', value: liveAlerts.value.length, unit: '', tone: 'c-teal' },
+  { label: '未签收', value: unsignedCount.value, unit: '', tone: 'c-red' },
+  { label: '处置中', value: handlingCount.value, unit: '', tone: 'c-amber' },
   { label: '平均响应时间', value: 26, unit: 'min', tone: 'c-green' },
-  { label: '重大事件数', value: majorCount, unit: '', tone: 'c-red' },
-];
+  { label: '重大事件数', value: majorCount.value, unit: '', tone: 'c-red' },
+]);
 
 /** 应急资源（驻点 = 真实苏木乡镇中心坐标） */
 const resources: EmergencyResource[] = [
@@ -260,20 +262,22 @@ const resources: EmergencyResource[] = [
 ];
 
 /** 调度关系：重大事件自动触发预案调派；已派单/已签收为常态调度 */
-const dispatchLinks = alerts.flatMap((a) => {
-  if (a.status === '未签收' && a.level !== '重大') return [];
-  const ids: string[] =
-    a.type === 'burst' || a.type === 'frost'
-      ? ['R-TEAM', 'R-TRUCK', 'R-PIPE']
-      : a.type === 'water_quality'
-        ? ['R-TRUCK']
-        : ['R-PUMP'];
-  return ids.map((resourceId) => ({ resourceId, eventId: a.id }));
-});
+const dispatchLinks = computed(() =>
+  liveAlerts.value.flatMap((a) => {
+    if (a.status === '未签收' && a.level !== '重大') return [];
+    const ids: string[] =
+      a.type === 'burst' || a.type === 'frost'
+        ? ['R-TEAM', 'R-TRUCK', 'R-PIPE']
+        : a.type === 'water_quality'
+          ? ['R-TRUCK']
+          : ['R-PUMP'];
+    return ids.map((resourceId) => ({ resourceId, eventId: a.id }));
+  }),
+);
 
 /* ================= 选中 / 高亮联动 ================= */
 const selected = ref<EmergencyEvent | null>(
-  alerts.find((a) => a.level === '重大') ?? alerts[0] ?? null,
+  liveAlerts.value.find((a) => a.level === '重大') ?? liveAlerts.value[0] ?? null,
 );
 const highlightId = ref<string | null>(null);
 
@@ -293,7 +297,7 @@ function selectEvent(a: EmergencyEvent): void {
 }
 
 function focusTopAlarm(): void {
-  const a = alerts.find((x) => x.status === '未签收') ?? alerts[0];
+  const a = liveAlerts.value.find((x) => x.status === '未签收') ?? liveAlerts.value[0];
   if (a) selectEvent(a);
 }
 
@@ -376,7 +380,15 @@ async function fetchGeo(url: string): Promise<GeoFc> {
 const bannerPaths = ref<string[]>([]);
 const townPaths = ref<string[]>([]);
 
+const offs: Array<() => void> = [];
+
 onMounted(async () => {
+  // 实时引擎（本页只消费 alert 频道 · 新事件置顶 + KPI/地图/调度线联动）
+  realtime.start({ monitors: mockData.monitors, alertPool: mockData.alerts });
+  offs.push(onRealtime('alert', (evt) => {
+    liveAlerts.value = [evt.data as unknown as EmergencyEvent, ...liveAlerts.value].slice(0, 15);
+  }));
+
   try {
     const fc = await fetchGeo(`${import.meta.env.BASE_URL}geo/banner.json`);
     bbox.value = bboxOf(fc);
@@ -392,6 +404,11 @@ onMounted(async () => {
   }
 });
 
+onBeforeUnmount(() => {
+  realtime.stop();
+  offs.forEach((off) => off());
+});
+
 /* 点位投影（computed 依赖 bbox，边界加载后自动重投影） */
 interface MapEvent {
   event: EmergencyEvent;
@@ -399,7 +416,7 @@ interface MapEvent {
   y: number;
 }
 const mapEvents = computed<MapEvent[]>(() =>
-  alerts.flatMap((a): MapEvent[] => {
+  liveAlerts.value.flatMap((a): MapEvent[] => {
     const coord = a.projectId ? projectCoord.get(a.projectId) : undefined;
     if (!coord) return [];
     const p = proj(coord[0], coord[1]);
@@ -424,7 +441,7 @@ const sumuPoints = computed(() =>
 );
 
 const mapLinks = computed(() =>
-  dispatchLinks.flatMap((l): Array<{ x1: number; y1: number; x2: number; y2: number }> => {
+  dispatchLinks.value.flatMap((l): Array<{ x1: number; y1: number; x2: number; y2: number }> => {
     const ev = mapEvents.value.find((e) => e.event.id === l.eventId);
     const res = resources.find((r) => r.id === l.resourceId);
     if (!ev || !res) return [];
@@ -448,7 +465,8 @@ function resetView(): void {
 }
 
 const mapSub = computed(
-  () => `${alerts.length} 起 · 未签收 ${unsignedCount} · 调度 ${dispatchLinks.length} 线`,
+  () =>
+    `${liveAlerts.value.length} 起 · 未签收 ${unsignedCount.value} · 调度 ${dispatchLinks.value.length} 线`,
 );
 
 /* ================= 标签 / 格式化 ================= */

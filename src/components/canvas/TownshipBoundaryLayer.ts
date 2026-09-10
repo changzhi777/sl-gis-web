@@ -31,7 +31,7 @@ export class TownshipBoundaryLayer extends BaseLayer {
     if (this.built) return;
     this.built = true;
 
-    fetch(`${import.meta.env.VITE_BASE_URL || '/'}geo/townships.json`)
+    fetch(`${import.meta.env.BASE_URL}geo/townships.json`)
       .then(r => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
       .then((fc: { features: Array<{ properties: TownshipFeature; geometry: { coordinates: [number[][]] } } > }) => {
         const edges: THREE.Line[] = [];

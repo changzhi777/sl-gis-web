@@ -110,7 +110,7 @@
         <!-- ============ 右列 ============ -->
         <div class="col">
           <Panel variant="alarm" title="告警等级表" :sub="`未签收 ${unsignedLive} 条`" class="f16" hero>
-            <AlarmTable :alerts="mockData.alerts" @unsigned-change="unsignedLive = $event" />
+            <AlarmTable :alerts="liveAlerts" @unsigned-change="unsignedLive = $event" />
           </Panel>
 
           <Panel title="数据完整率" sub="24h 到达率 · %" class="f10">
@@ -127,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import VScaleScreen from 'v-scale-screen';
 import TopBar from '@ui/TopBar.vue';
 import KpiCard from '@ui/KpiCard.vue';
@@ -137,8 +137,9 @@ import CurveCompare from './CurveCompare.vue';
 import ProcessFlow from './ProcessFlow.vue';
 import AlarmTable from './AlarmTable.vue';
 import { mockData } from '@mock/index';
+import { realtime, onRealtime } from '@/composables/realtime';
 import { MONITOR_COLOR, STATUS_COLOR } from '@shared/types';
-import type { MonitorPoint, Project, Status } from '@shared/types';
+import type { EmergencyEvent, MonitorPoint, Project, Status } from '@shared/types';
 
 /* ---------- 常量 ---------- */
 const VIEW_OPTIONS: string[] = ['实时监测', '按泵站', '按苏木乡镇'];
@@ -169,35 +170,53 @@ const STATUS_CN: Record<Status, string> = {
   offline: '离线',
 };
 
-/* ---------- KPI（顶栏 + KPI 条） ---------- */
-const pressureVals = mockData.monitors.filter((m) => m.type === 'pressure').map((m) => m.value);
-const flowVals = mockData.monitors.filter((m) => m.type === 'flow').map((m) => m.value);
-const avgPressure = pressureVals.length
-  ? +(pressureVals.reduce((s, v) => s + v, 0) / pressureVals.length).toFixed(2)
-  : 0;
-const totalFlow = Math.round(flowVals.reduce((s, v) => s + v, 0));
+/* ---------- 实时状态（realtime 引擎驱动 · 初始值 = mock 基线） ---------- */
+const liveMonitors = ref<MonitorPoint[]>([...mockData.monitors]);
+const liveAlerts = ref<EmergencyEvent[]>([...mockData.alerts]);
+/** pump 频道快照：projectId → 泵组/电流/管压 */
+interface PumpSnapshot {
+  projectId: string;
+  current: number;
+  pressure: number;
+  pumps: Array<{ tag: string; running: boolean; freq: number }>;
+}
+const pumpLive = ref<Record<string, PumpSnapshot>>({});
+/** kpi 频道在线率（初始取 cockpit 基线） */
+const liveOnlineRate = ref(mockData.cockpit.quality.deviceOnlineRate);
+const offs: Array<() => void> = [];
 
-const unsignedCount = computed(() => mockData.alerts.filter((a) => a.status === '未签收').length);
+/* ---------- KPI（顶栏 + KPI 条，随 monitor 频道滚动） ---------- */
+const avgPressure = computed(() => {
+  const vals = liveMonitors.value.filter((m) => m.type === 'pressure').map((m) => m.value);
+  return vals.length ? +(vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(2) : 0;
+});
+const totalFlow = computed(() =>
+  Math.round(liveMonitors.value.filter((m) => m.type === 'flow').reduce((s, m) => s + m.value, 0)),
+);
+
+const unsignedCount = computed(() => liveAlerts.value.filter((a) => a.status === '未签收').length);
 
 /** 签收操作后的实时未签收数（AlarmTable 回传，顶栏告警灯 + 面板标题联动） */
 const unsignedLive = ref(unsignedCount.value);
 
 const stripKpis = computed(() => [
-  { value: mockData.cockpit.quality.deviceOnlineRate, unit: '%', label: '设备在线率', alarm: false },
+  { value: liveOnlineRate.value, unit: '%', label: '设备在线率', alarm: false },
   { value: mockData.cockpit.quality.dataCompleteRate, unit: '%', label: '数据完整率', alarm: false },
-  { value: mockData.alerts.length, unit: '条', label: '实时告警', alarm: true },
-  { value: avgPressure, unit: 'MPa', label: '平均压力', alarm: false },
-  { value: totalFlow, unit: 'm³/h', label: '实时总流量', alarm: false },
+  { value: liveAlerts.value.length, unit: '条', label: '实时告警', alarm: true },
+  { value: avgPressure.value, unit: 'MPa', label: '平均压力', alarm: false },
+  { value: totalFlow.value, unit: 'm³/h', label: '实时总流量', alarm: false },
 ]);
 
 const topKpis = computed(() => [
-  { value: mockData.cockpit.quality.deviceOnlineRate, unit: '%', label: '设备在线率' },
+  { value: liveOnlineRate.value, unit: '%', label: '设备在线率' },
   { value: mockData.cockpit.quality.dataCompleteRate, unit: '%', label: '数据完整率' },
-  { value: totalFlow, unit: 'm³/h', label: '实时总流量' },
+  { value: totalFlow.value, unit: 'm³/h', label: '实时总流量' },
 ]);
 
 /* ---------- 测点选择（联动曲线） ---------- */
-const monitorsById = new Map<string, MonitorPoint>(mockData.monitors.map((m) => [m.id, m]));
+const monitorsById = computed(() =>
+  new Map<string, MonitorPoint>(liveMonitors.value.map((m) => [m.id, m])),
+);
 
 /** 默认选前 3 个压力测点，进屏即有对比曲线 */
 const selectedIds = ref<string[]>(
@@ -211,7 +230,7 @@ const MAX_SELECTED = 4;
 
 const selectedMonitors = computed<MonitorPoint[]>(() =>
   selectedIds.value
-    .map((id) => monitorsById.get(id))
+    .map((id) => monitorsById.value.get(id))
     .filter((m): m is MonitorPoint => m !== undefined),
 );
 
@@ -237,7 +256,7 @@ const groupsData = computed(() =>
   GROUP_ORDER.map((type) => ({
     type,
     label: TYPE_LABELS[type],
-    items: mockData.monitors.filter((m) => m.type === type),
+    items: liveMonitors.value.filter((m) => m.type === type),
   })),
 );
 
@@ -298,21 +317,36 @@ function pumpsFor(p: Project): PumpChip[] {
   ];
 }
 
+/** 站非运行态 → 泵态（pump 频道只给 running 布尔，停机态按站状态语义解释） */
+const IDLE_STATE: Record<Status, PumpState> = {
+  normal: 'standby',
+  alarm: 'standby',
+  repair: 'standby',
+  stop: 'fault',
+  offline: 'fault',
+};
+
 const pumpStations = computed<PumpStation[]>(() =>
   [...mockData.projects]
     .filter((p) => p.grade === 'A')
     .sort((a, b) => STATUS_WEIGHT[a.status] - STATUS_WEIGHT[b.status])
     .slice(0, 6)
-    .map((p) => ({
-      id: p.id,
-      short: p.id.replace('PRJ-', ''),
-      suMu: p.suMu,
-      status: p.status,
-      statusText: STATUS_CN[p.status],
-      pumps: pumpsFor(p),
-      current: p.metrics.pumpCurrent ?? 0,
-      pressure: p.metrics.pressure ?? 0,
-    })),
+    .map((p) => {
+      const live = pumpLive.value[p.id];
+      const chips: PumpChip[] = live
+        ? live.pumps.map((q) => ({ tag: q.tag, state: q.running ? 'run' : IDLE_STATE[p.status] }))
+        : pumpsFor(p);
+      return {
+        id: p.id,
+        short: p.id.replace('PRJ-', ''),
+        suMu: p.suMu,
+        status: p.status,
+        statusText: STATUS_CN[p.status],
+        pumps: chips,
+        current: live?.current ?? p.metrics.pumpCurrent ?? 0,
+        pressure: live?.pressure ?? p.metrics.pressure ?? 0,
+      };
+    }),
 );
 
 /* ---------- 数据完整率（确定性推导：id 哈希基率，alarm 点按缺数加重） ---------- */
@@ -335,7 +369,7 @@ function band(v: number): 'normal' | 'repair' | 'alarm' {
 
 const typeRates = computed(() =>
   GROUP_ORDER.map((type) => {
-    const items = mockData.monitors.filter((m) => m.type === type);
+    const items = liveMonitors.value.filter((m) => m.type === type);
     const v = items.length ? avg(items.map((m) => pointRate(m))) : 100;
     return { label: TYPE_LABELS[type], value: Math.round(v * 10) / 10, type };
   }),
@@ -355,11 +389,49 @@ const overallItems = computed(() => [
 ]);
 
 const worstItems = computed(() =>
-  [...mockData.monitors]
+  [...liveMonitors.value]
     .sort((a, b) => pointRate(a) - pointRate(b))
     .slice(0, 4)
     .map((m) => ({ label: shortId(m), value: pointRate(m), status: band(pointRate(m)) as Status })),
 );
+
+/* ---------- realtime 引擎接线（1 期 mock · 2 期切 SSE） ---------- */
+onMounted(() => {
+  realtime.start({
+    monitors: mockData.monitors,
+    alertPool: mockData.alerts,
+    aProjects: mockData.projects.filter((p) => p.grade === 'A'),
+  });
+
+  offs.push(onRealtime('monitor', (evt) => {
+    const points = evt.data.points as Array<{ id: string; value: number }>;
+    liveMonitors.value = liveMonitors.value.map((m) => {
+      const hit = points.find((pt) => pt.id === m.id);
+      return hit ? { ...m, value: hit.value } : m;
+    });
+  }));
+
+  offs.push(onRealtime('alert', (evt) => {
+    liveAlerts.value = [evt.data as unknown as EmergencyEvent, ...liveAlerts.value].slice(0, 12);
+  }));
+
+  offs.push(onRealtime('pump', (evt) => {
+    const stations = evt.data.stations as PumpSnapshot[];
+    const next: Record<string, PumpSnapshot> = { ...pumpLive.value };
+    for (const s of stations) next[s.projectId] = s;
+    pumpLive.value = next;
+  }));
+
+  offs.push(onRealtime('kpi', (evt) => {
+    const d = evt.data as { onlineRate?: number };
+    if (d.onlineRate) liveOnlineRate.value = d.onlineRate;
+  }));
+});
+
+onBeforeUnmount(() => {
+  realtime.stop();
+  offs.forEach((off) => off());
+});
 </script>
 
 <style scoped>

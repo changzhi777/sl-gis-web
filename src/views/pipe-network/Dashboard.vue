@@ -43,6 +43,12 @@
       </div>
     </template>
 
+    <!-- 右列：实时告警（alert 频道置顶）+ 水质/运维微条 -->
+    <template #right>
+      <AlertList :alerts="liveAlerts" />
+      <MonitorPanel />
+    </template>
+
     <!-- 底部趋势带：左 TrendLine / 右 SparkLine -->
     <template #trend>
       <Panel title="取·供·售水量 24h" sub="趋势">
@@ -105,7 +111,10 @@ import SparkLine from '@charts/SparkLine.vue';
 import createStage from '@canvas/Stage';
 import type { Stage } from '@canvas/Stage';
 import { mockData } from '@mock/index';
-import type { Project, Status, Grade } from '@shared/types';
+import { realtime, onRealtime } from '@/composables/realtime';
+import AlertList from './AlertList.vue';
+import MonitorPanel from './MonitorPanel.vue';
+import type { Project, Status, Grade, EmergencyEvent } from '@shared/types';
 
 type CityDensity = 'low' | 'mid' | 'high';
 const STATUS_ORDER: Status[] = ['normal', 'alarm', 'repair', 'stop', 'offline'];
@@ -124,6 +133,7 @@ const hiddenGrades = ref<Set<Grade>>(new Set());
 const viewerOpen = ref(false);
 const viewerProject = ref<Project | null>(null);
 const viewerOrigin = ref<{ x: number; y: number } | null>(null);
+const kpiOnlineRate = ref(91.6);
 
 /* ---------- 派生：Legend 计数 ---------- */
 const legendProjects = computed(() => {
@@ -165,9 +175,13 @@ const trendSeries = computed(() => {
   ];
 });
 
-/* ---------- 派生：右侧 SparkLine（瞬时流量 / 压力）---------- */
-/** 24 点（每 1h 一采样）— 从所有流量监测点中位数 + 抖动，模拟"实时"形态 */
-const flowSeries = computed<number[]>(() => {
+/* ---------- 实时状态（realtime 引擎驱动） ---------- */
+const liveAlerts = ref<EmergencyEvent[]>([...mockData.alerts]);
+const offs: Array<() => void> = [];
+
+/* ---------- 派生：右侧 SparkLine（瞬时流量 / 压力） ---------- */
+/** 初始 24 点形态：类型中位数 + 双峰（与 monitors.ts genHistory 同源），实时值由 monitor 频道滚动追加 */
+function buildFlowSeries(): number[] {
   const flows = mockData.monitors
     .filter((m) => m.type === 'flow')
     .map((m) => m.value)
@@ -177,8 +191,8 @@ const flowSeries = computed<number[]>(() => {
     const phase = (i / 24) * Math.PI * 2;
     return Math.max(40, Math.round(mid + 18 * Math.sin(phase - Math.PI / 2) + (i % 5 - 2) * 4));
   });
-});
-const pressureSeries = computed<number[]>(() => {
+}
+function buildPressureSeries(): number[] {
   const pres = mockData.monitors
     .filter((m) => m.type === 'pressure')
     .map((m) => m.value)
@@ -188,7 +202,9 @@ const pressureSeries = computed<number[]>(() => {
     const phase = (i / 24) * Math.PI * 2;
     return Math.max(0.15, +(mid + 0.06 * Math.sin(phase - Math.PI / 2) + (i % 4 - 1.5) * 0.012).toFixed(3));
   });
-});
+}
+const flowSeries = ref<number[]>(buildFlowSeries());
+const pressureSeries = ref<number[]>(buildPressureSeries());
 
 /* ---------- 高度：趋势带可用高度 ≈ 176 - 顶栏 48 - panel 标题 ≈ 110 ---------- */
 const trendHeight = 110;
@@ -203,6 +219,33 @@ function resetCamera(): void {
 onMounted(() => {
   if (!stageRef.value) return;
   stage = createStage(stageRef.value);
+
+  // 实时数据引擎（1 期 mock 模拟 · 2 期切 SSE）
+  realtime.start({ monitors: mockData.monitors, alertPool: mockData.alerts });
+
+  offs.push(onRealtime('kpi', (evt) => {
+    const d = evt.data as Record<string, number>;
+    if (d.onlineRate) kpiOnlineRate.value = d.onlineRate;
+  }));
+
+  // 新告警置顶（上限 12 条，与滚动列表容量匹配）
+  offs.push(onRealtime('alert', (evt) => {
+    liveAlerts.value = [evt.data as unknown as EmergencyEvent, ...liveAlerts.value].slice(0, 12);
+  }));
+
+  // 瞬时流量/压力曲线滚动追加（24 点窗口）
+  offs.push(onRealtime('monitor', (evt) => {
+    const points = evt.data.points as Array<{ type: string; value: number }>;
+    for (const pt of points) {
+      if (pt.type === 'flow') {
+        flowSeries.value.push(Math.round(pt.value));
+        flowSeries.value.shift();
+      } else if (pt.type === 'pressure') {
+        pressureSeries.value.push(+pt.value.toFixed(3));
+        pressureSeries.value.shift();
+      }
+    }
+  }));
 
   // 喂入业务数据
   stage.setProjects(mockData.projects);
@@ -243,6 +286,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  realtime.stop();
+  offs.forEach((off) => off());
   if (stage) {
     stage.dispose();
     stage = null;

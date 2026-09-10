@@ -63,9 +63,9 @@ const FLOW_VERT = /* glsl */ `
     float d = abs(local - 0.5);
     float bright = exp(-d * d * 60.0);   // 亮带尖峰
     vColor = aColor;
-    vAlpha = 0.18 + bright;              // 常亮底 + 流光峰
+    vAlpha = 0.28 + bright * 1.3;              // 常亮底 + 流光峰
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    gl_PointSize = aSize * (400000.0 / -mv.z);
+    gl_PointSize = aSize * (550000.0 / -mv.z);
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -75,7 +75,7 @@ const FLOW_FRAG = /* glsl */ `
   varying float vAlpha;
   void main() {
     float r = distance(gl_PointCoord, vec2(0.5, 0.5));
-    float falloff = pow(1.0 - r / 0.5, 3.0);
+    float falloff = pow(1.0 - r / 0.5, 2.0);
     gl_FragColor = vec4(vColor, vAlpha * falloff);
   }
 `;

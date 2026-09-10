@@ -25,6 +25,7 @@ import { ModelLayer } from './ModelLayer';
 import { GroundLayer } from './GroundLayer';
 import { PlantLayer } from './PlantLayer';
 import { TownshipLayer } from './TownshipLayer';
+import { TownshipBoundaryLayer } from './TownshipBoundaryLayer';
 import { TileLayer } from './TileLayer';
 import { pickAt, pickIds, type PickableEntry } from './hitTest';
 import { lon2xy } from './utils/lon2xy';
@@ -54,6 +55,7 @@ declare global {
 type LayerName =
   | 'Plant'
   | 'Township'
+  | 'TownshipBoundary'
   | 'Tile'
   | 'Ground'
   | 'BaseMap'
@@ -165,6 +167,7 @@ export class Stage {
     const ground = new GroundLayer();
     const plant = new PlantLayer();
     const township = new TownshipLayer();
+    const townshipBoundary = new TownshipBoundaryLayer();
     const tile = new TileLayer();
     const baseMap = new BaseMapLayer();
     const pipe = new PipeLayer();
@@ -187,6 +190,7 @@ export class Stage {
     addLayer(ground);
     addLayer(tile);
     addLayer(township);
+    addLayer(townshipBoundary);
     addLayer(plant);
     addLayer(baseMap);
     addLayer(pipe);
@@ -334,6 +338,8 @@ export class Stage {
     g?.buildForBBox({ minLon: bbox.minLon, maxLon: bbox.maxLon, minLat: bbox.minLat, maxLat: bbox.maxLat });
     const tw = this.layers.get('Township') as TownshipLayer | undefined;
     tw?.build();
+    const tb = this.layers.get('TownshipBoundary') as TownshipBoundaryLayer | undefined;
+    tb?.buildForBBox({ minLon: bbox.minLon, maxLon: bbox.maxLon, minLat: bbox.minLat, maxLat: bbox.maxLat });
     const tl = this.layers.get('Tile') as TileLayer | undefined;
     tl?.buildForBBox({ minLon: bbox.minLon, maxLon: bbox.maxLon, minLat: bbox.minLat, maxLat: bbox.maxLat });
     return true;

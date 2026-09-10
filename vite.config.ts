@@ -23,7 +23,7 @@ export default defineConfig({
     port: 5173,
     host: '0.0.0.0',
     proxy: {
-      '/api': { target: 'http://localhost:8000', changeOrigin: true },  // 2 期 FastAPI
+      '/api': { target: 'http://localhost:8090', changeOrigin: true, ws: true },  // nano-api（systemd 8090）
     },
   },
   build: {

@@ -132,10 +132,19 @@ function maybeEmitAlert(): void {
 
 /* ================= 真 SSE（alert 频道） ================= */
 
-/** 取令牌：本地缓存 → demo 账号自动登录（VITE_DEMO_USER/PASS 可覆盖） */
+let loginInflight: Promise<string | null> | null = null;
+
+/** 取令牌：本地缓存 → demo 账号自动登录（并发去重 · VITE_DEMO_USER/PASS 可覆盖） */
 async function ensureToken(): Promise<string | null> {
   const cached = localStorage.getItem(TOKEN_KEY);
   if (cached) return cached;
+  if (!loginInflight) {
+    loginInflight = doLogin().finally(() => { loginInflight = null; });
+  }
+  return loginInflight;
+}
+
+async function doLogin(): Promise<string | null> {
   const user = (import.meta.env.VITE_DEMO_USER as string | undefined) ?? 'admin';
   const pass = (import.meta.env.VITE_DEMO_PASS as string | undefined) ?? 'admin123';
   try {

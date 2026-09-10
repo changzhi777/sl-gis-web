@@ -112,6 +112,7 @@ import createStage from '@canvas/Stage';
 import type { Stage } from '@canvas/Stage';
 import { mockData } from '@mock/index';
 import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
+import { mapProject, mapMonitor, unpackItems } from '@shared/backend';
 import AlertList from './AlertList.vue';
 import MonitorPanel from './MonitorPanel.vue';
 import type { Project, Status, Grade, EmergencyEvent } from '@shared/types';
@@ -250,12 +251,13 @@ onMounted(() => {
     }
   }));
 
-  // 喂入业务数据（mock 起步；真数据由 hydrateProjects 异步覆盖）
+  // 喂入业务数据（mock 起步；真数据由 hydrate* 异步覆盖）
   stage.setProjects(liveProjects.value);
   stage.setPipes(mockData.pipes);
   stage.setMonitors(mockData.monitors);
   stage.setAlerts(mockData.alerts);
   void hydrateProjects();
+  void hydrateMonitors();
 
   // 城市场景需要 base bbox（Track A 在 BaseMap init 时异步拿 banner.json）
   // 安排一个微任务重试，确保首次拿到 bbox
@@ -291,24 +293,22 @@ onMounted(() => {
 
 /** 后端 /api/projects 水合：真工程覆盖 mock（失败静默保留 mock） */
 async function hydrateProjects(): Promise<void> {
-  const data = await apiFetch<{ total: number; items: Array<Record<string, unknown>> }>('/api/projects');
-  if (!data?.items?.length || !stage) return;
-  const projects: Project[] = data.items.map((p) => ({
-    id: String(p.code),
-    name: String(p.name),
-    grade: p.grade as Grade,
-    status: p.status as Status,
-    coord: [Number(p.lon), Number(p.lat)],
-    suMu: String(p.su_mu),
-    responsible: String(p.responsible ?? ''),
-    metrics: {},
-  }));
+  const items = unpackItems(await apiFetch('/api/projects'));
+  if (!items || !stage) return;
+  const projects = items.map(mapProject);
   liveProjects.value = projects;
   stage.setProjects(projects); // 图层可重入（PlantLayer 先清旧再建）
   // 飞线终点随真厂归位
   const flowMonitors = mockData.monitors.filter((m) => m.type === 'flow');
   const factory = projects.find((p) => p.grade === 'A' && p.status === 'normal') ?? projects[0];
   if (factory) stage.setFlyLines(flowMonitors.slice(0, 6), factory);
+}
+
+/** 后端 /api/monitors 水合：真监测点覆盖 mock（位置归位真实苏木周边） */
+async function hydrateMonitors(): Promise<void> {
+  const items = unpackItems(await apiFetch('/api/monitors'));
+  if (!items || !stage) return;
+  stage.setMonitors(items.map(mapMonitor));
 }
 
 onBeforeUnmount(() => {

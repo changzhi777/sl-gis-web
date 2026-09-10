@@ -137,7 +137,8 @@ import CurveCompare from './CurveCompare.vue';
 import ProcessFlow from './ProcessFlow.vue';
 import AlarmTable from './AlarmTable.vue';
 import { mockData } from '@mock/index';
-import { realtime, onRealtime } from '@/composables/realtime';
+import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
+import { mapMonitor, unpackItems } from '@shared/backend';
 import { MONITOR_COLOR, STATUS_COLOR } from '@shared/types';
 import type { EmergencyEvent, MonitorPoint, Project, Status } from '@shared/types';
 
@@ -172,6 +173,13 @@ const STATUS_CN: Record<Status, string> = {
 
 /* ---------- 实时状态（realtime 引擎驱动 · 初始值 = mock 基线） ---------- */
 const liveMonitors = ref<MonitorPoint[]>([...mockData.monitors]);
+
+/** 后端 /api/monitors 水合：真监测点覆盖 mock（值/坐标真 · history 按 value 合成兜底） */
+async function hydrateMonitors(): Promise<void> {
+  const items = unpackItems(await apiFetch('/api/monitors'));
+  if (!items?.length) return;
+  liveMonitors.value = items.map(mapMonitor);
+}
 const liveAlerts = ref<EmergencyEvent[]>([...mockData.alerts]);
 /** pump 频道快照：projectId → 泵组/电流/管压 */
 interface PumpSnapshot {
@@ -397,6 +405,7 @@ const worstItems = computed(() =>
 
 /* ---------- realtime 引擎接线（1 期 mock · 2 期切 SSE） ---------- */
 onMounted(() => {
+  void hydrateMonitors();
   realtime.start({
     monitors: mockData.monitors,
     alertPool: mockData.alerts,

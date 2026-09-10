@@ -60,16 +60,47 @@
 </template>
 
 <script setup lang="ts">
-import { CURRENT_BILL, PAY_RECORDS, USAGE_6M } from '@/api/mock'
+import { computed, ref } from 'vue'
+import { CURRENT_BILL, PAY_RECORDS, USAGE_6M, type MonthBill, type PayRecord, type UsageMonth } from '@/api/mock'
+import { apiGet, type BillRow } from '@/api/client'
 
-const bill = CURRENT_BILL
-const usage = USAGE_6M
-const records = PAY_RECORDS
+/** mock 起步 → 后端账单水合覆盖（失败回落 mock） */
+const bill = ref<MonthBill>(CURRENT_BILL)
+const usage = ref<UsageMonth[]>(USAGE_6M)
+const records = ref<PayRecord[]>(PAY_RECORDS)
 
-const maxUsage = Math.max(...usage.map((m) => m.usage))
+/** 后端账单 → 当月卡 + 用量柱 + 缴费记录三块 */
+async function loadBills() {
+  const data = await apiGet<{ total: number; items: BillRow[]; unpaid: number }>(
+    '/api/portal/bills?account=SL2026001',
+  )
+  if (!data?.items?.length) return
+  const rows = [...data.items].sort((a, b) => a.month.localeCompare(b.month))
+  const latest = rows[rows.length - 1]
+  bill.value = {
+    month: latest.month.replace('-', '年') + '月',
+    usage: latest.usage_t,
+    price: latest.usage_t ? +(latest.amount / latest.usage_t).toFixed(2) : 3.5,
+    amount: latest.amount,
+    status: latest.paid ? '已缴' : '未缴',
+  }
+  usage.value = rows.map((b) => ({ month: b.month.slice(5).replace('-', '/') + '月', usage: b.usage_t }))
+  records.value = rows
+    .filter((b) => b.paid)
+    .reverse()
+    .map((b, i) => ({
+      id: i + 1,
+      time: (b.paid_at || '').slice(0, 16).replace('T', ' '),
+      amount: b.amount,
+      channel: '线上缴费',
+    }))
+}
+loadBills()
+
+const maxUsage = computed(() => Math.max(...usage.value.map((m) => m.usage)))
 
 function barHeight(value: number): string {
-  return `${Math.round((value / maxUsage) * 100)}%`
+  return `${Math.round((value / maxUsage.value) * 100)}%`
 }
 
 function onPay() {

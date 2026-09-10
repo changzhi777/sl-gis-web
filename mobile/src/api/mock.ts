@@ -16,6 +16,7 @@ export interface UserProfile {
 export interface WaterNotice {
   id: number
   title: string
+  type?: string // 停水/限时供水/水质检测/恢复供水
   area: string
   date: string
   content: string

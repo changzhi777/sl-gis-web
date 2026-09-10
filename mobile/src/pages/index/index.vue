@@ -37,7 +37,7 @@
         <text class="card-more" @click="onMore">更多</text>
       </view>
       <view class="notice" v-for="n in notices" :key="n.id" @click="onNotice(n)">
-        <view class="notice-badge">停水</view>
+        <view class="notice-badge">{{ n.type || '公告' }}</view>
         <view class="notice-body">
           <text class="notice-title">{{ n.title }}</text>
           <text class="notice-meta">{{ n.area }} · {{ n.date }}</text>
@@ -48,7 +48,9 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { NOTICES, USER, type WaterNotice } from '@/api/mock'
+import { apiGet, type NoticeRow } from '@/api/client'
 
 interface QuickItem {
   name: string
@@ -58,7 +60,23 @@ interface QuickItem {
 }
 
 const user = USER
-const notices = NOTICES
+/** mock 起步 → 后端公告水合覆盖（失败回落 mock） */
+const notices = ref<WaterNotice[]>(NOTICES)
+
+/** 后端行 → 页面形状（type 徽标 / date 显示 created 前 16 位） */
+async function loadNotices() {
+  const data = await apiGet<{ total: number; items: NoticeRow[] }>('/api/portal/notices?limit=5')
+  if (!data?.items?.length) return
+  notices.value = data.items.map((n) => ({
+    id: n.id,
+    title: n.title,
+    type: n.type,
+    area: n.su_mu ?? '全域',
+    date: (n.created || '').slice(5, 16).replace('T', ' '),
+    content: n.content,
+  }))
+}
+loadNotices()
 
 const quicks: QuickItem[] = [
   { name: '水费缴纳', tag: '缴', bg: '#00a6e0', url: '/pages/bill/index' },

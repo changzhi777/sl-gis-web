@@ -23,6 +23,17 @@
       </view>
 
       <view class="form-item">
+        <text class="form-label">报修位置</text>
+        <input
+          class="form-input"
+          type="text"
+          v-model="location"
+          placeholder="如：赛汉塔拉镇 X 街 / 嘎查村名"
+          placeholder-class="input-placeholder"
+        />
+      </view>
+
+      <view class="form-item">
         <text class="form-label">问题描述</text>
         <textarea
           class="form-textarea"
@@ -52,6 +63,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { REPAIR_TYPES } from '@/api/mock'
+import { apiPost } from '@/api/client'
 
 const types = REPAIR_TYPES
 
@@ -60,6 +72,8 @@ const form = ref({
   phone: '',
   desc: '',
 })
+const location = ref('')
+const submitting = ref(false)
 
 function onTypeChange(e: { detail: { value: number | string } }) {
   form.value.type = types[Number(e.detail.value)]
@@ -70,8 +84,7 @@ function onAddPhoto() {
   uni.showToast({ title: '照片上传占位（待接入）', icon: 'none' })
 }
 
-function onSubmit() {
-  // 骨架阶段：本地校验 + toast 反馈，不发请求
+async function onSubmit() {
   if (!form.value.type) {
     uni.showToast({ title: '请选择问题类型', icon: 'none' })
     return
@@ -84,7 +97,27 @@ function onSubmit() {
     uni.showToast({ title: '请填写问题描述', icon: 'none' })
     return
   }
-  uni.showToast({ title: '报修已提交，等待派单', icon: 'success' })
+  if (submitting.value) return
+  submitting.value = true
+  // 真实提交：POST /api/portal/repairs（免鉴权 · 返回工单号）
+  const data = await apiPost<{ ticket: string }>('/api/portal/repairs', {
+    category: form.value.type,
+    phone: form.value.phone.trim(),
+    location: location.value.trim() || '未填写',
+    description: form.value.desc.trim(),
+  })
+  submitting.value = false
+  if (data?.ticket) {
+    uni.showModal({
+      title: '报修已提交',
+      content: `工单号 ${data.ticket}，处理进度可用手机号查询`,
+      showCancel: false,
+    })
+    form.value = { type: '', phone: '', desc: '' }
+    location.value = ''
+  } else {
+    uni.showToast({ title: '提交失败，请检查网络', icon: 'none' })
+  }
 }
 </script>
 

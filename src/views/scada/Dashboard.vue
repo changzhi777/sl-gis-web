@@ -113,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import KpiCard from '@ui/KpiCard.vue';
 import Panel from '@ui/Panel.vue';
 import StatusBars from '@charts/StatusBars.vue';
@@ -161,6 +161,20 @@ async function hydrateMonitors(): Promise<void> {
   const items = unpackItems(await apiFetch('/api/monitors'));
   if (!items?.length) return;
   liveMonitors.value = items.map(mapMonitor);
+}
+
+/** 选中测点真历史拉取：替换合成 history（后端 biz_monitor_history 24h 时序） */
+async function loadHistory(ids: string[]): Promise<void> {
+  await Promise.all(
+    ids.map(async (id) => {
+      const data = await apiFetch<{ total: number; items: Array<{ ts: string; value: number }> }>(
+        `/api/monitors/${id}/history`,
+      );
+      if (!data?.items?.length) return;
+      const values = data.items.map((h) => +h.value.toFixed(3));
+      liveMonitors.value = liveMonitors.value.map((m) => (m.id === id ? { ...m, history: values } : m));
+    }),
+  );
 }
 const liveAlerts = ref<EmergencyEvent[]>([...mockData.alerts]);
 /** 初始 mock id 集合：真存量水合时丢弃 mock，仅保留 SSE 真增量 */
@@ -246,6 +260,8 @@ function toggle(m: MonitorPoint): void {
   if (selectedIds.value.length >= MAX_SELECTED) selectedIds.value.shift();
   selectedIds.value.push(m.id);
 }
+
+watch(selectedIds, (ids) => void loadHistory([...ids]));
 
 const groupsData = computed(() =>
   GROUP_ORDER.map((type) => ({
@@ -393,6 +409,7 @@ const worstItems = computed(() =>
 /* ---------- realtime 引擎接线（1 期 mock · 2 期切 SSE） ---------- */
 onMounted(() => {
   void hydrateMonitors();
+  void loadHistory([...selectedIds.value]);
   void hydrateAlerts();
   realtime.start({
     monitors: mockData.monitors,

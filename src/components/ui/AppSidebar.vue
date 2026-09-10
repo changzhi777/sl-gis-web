@@ -261,6 +261,38 @@ function toggleCollapsed(): void {
   display: block;
 }
 
+/* ===== 折叠态 hover：整栏临时展开为覆盖层（absolute · 不推挤主区地图） ===== */
+.sidebar.collapsed:hover .nav {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 216px;
+  height: 100%;
+  background: var(--night-navy);
+  border-right: var(--border-w) solid var(--line-vein);
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45);
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 30;
+}
+.sidebar.collapsed:hover .gtitle {
+  height: 28px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  padding: 0 16px;
+  opacity: 0.6;
+}
+.sidebar.collapsed:hover .gtitle::before {
+  display: none;
+}
+.sidebar.collapsed:hover .item {
+  justify-content: flex-start;
+  padding: 0 12px 0 18px;
+}
+.sidebar.collapsed:hover .item .tip {
+  display: none; /* 整栏已展开，tooltip 冗余 */
+}
+
 /* ===== 底部收合按钮 ===== */
 .toggle {
   flex: none;

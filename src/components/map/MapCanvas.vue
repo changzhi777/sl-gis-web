@@ -285,7 +285,9 @@ const emit = defineEmits<{
 const { MAP_W, mapH, bbox, proj, bannerPaths, bannerMainPath, towns, load } = useMapProjection();
 
 /* ================= 0) 实体地图瓦片底图（XYZ · 可循环切换） ================= */
-const TIANDITU_TK = (import.meta.env.VITE_TIANDITU_TK as string | undefined) ?? '';
+const RAW_TK = (import.meta.env.VITE_TIANDITU_TK as string | undefined) ?? '';
+/** 占位符视为未配置（.env.example 模板值不激活天地图） */
+const TIANDITU_TK = RAW_TK && !RAW_TK.includes('你的') ? RAW_TK : ''; 
 interface BasemapDef {
   key: string;
   label: string;
@@ -310,7 +312,7 @@ const BASEMAPS: BasemapDef[] = [
       ]
     : []),
 ];
-const basemapIdx = ref(-1);
+const basemapIdx = ref(0); // 默认 ESRI 卫星影像（免 key）
 const basemapKey = computed(() => (basemapIdx.value >= 0 ? BASEMAPS[basemapIdx.value].key : ''));
 const basemapDef = computed(() => (basemapIdx.value >= 0 ? BASEMAPS[basemapIdx.value] : null));
 function cycleBasemap(): void {

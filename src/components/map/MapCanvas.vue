@@ -978,7 +978,7 @@ watch(labelSpecs, async () => {
 .basemap-btn {
   position: absolute;
   bottom: 12px;
-  left: 12px;
+  right: 12px;
   z-index: 4;
   display: flex;
   align-items: center;

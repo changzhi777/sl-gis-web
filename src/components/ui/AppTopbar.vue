@@ -66,6 +66,20 @@
         <b class="num">{{ alarmCount }}</b>
         <span class="lamp-text">未签收告警</span>
       </span>
+      <div v-show="!app.fullscreen" class="res-tier" role="group" aria-label="渲染分辨率档位">
+        <button
+          type="button"
+          class="tier-btn"
+          :class="{ active: app.scaleTier === '1080p' }"
+          @click="app.setScaleTier('1080p')"
+        >1080P</button>
+        <button
+          type="button"
+          class="tier-btn"
+          :class="{ active: app.scaleTier === '4k' }"
+          @click="app.setScaleTier('4k')"
+        >4K</button>
+      </div>
       <button
         class="fs-btn"
         type="button"
@@ -135,6 +149,16 @@ function wakeFsBar(): void {
 function onFsPointer(): void {
   if (app.fullscreen) wakeFsBar();
 }
+/** 4K 档在非 4K 物理屏的提示（一次性） */
+let tierToastShown = false;
+watch(() => app.scaleTier, (tier) => {
+  if (tier !== '4k' || tierToastShown) return;
+  const physW = (window.screen?.width ?? 0) * (window.devicePixelRatio || 1);
+  if (physW < 3840) {
+    tierToastShown = true;
+    console.info('[分辨率] 当前为 1080P 级物理屏，4K 档用于 4K 大屏高清渲染');
+  }
+});
 const p2 = (n: number) => String(n).padStart(2, '0');
 function tickClock(): void {
   const d = new Date();
@@ -395,6 +419,29 @@ onBeforeUnmount(() => {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.res-tier {
+  flex: none;
+  display: flex;
+  border: var(--border-w) solid var(--line-vein);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.tier-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.tier-btn + .tier-btn { border-left: var(--border-w) solid var(--line-vein); }
+.tier-btn.active {
+  color: #00ffe0;
+  background: rgba(0, 194, 255, 0.12);
+}
+.tier-btn:hover { color: var(--spring-green); }
+
 .fs-btn {
   flex: none;
   display: flex;
@@ -495,4 +542,5 @@ onBeforeUnmount(() => {
 .topbar.fs-mode .county-sel { font-size: 12px; }
 .topbar.fs-mode .clock { font-size: 14px; }
 .topbar.fs-mode .fs-text { display: none; }
+.topbar.fs-mode .res-tier { display: none; }
 </style>

@@ -8,23 +8,42 @@
     图表组件 inject 后 watch 该 tick 补一次 resize
 -->
 <template>
-  <div class="shell">
+  <div class="stage">
+    <div class="shell" :style="shellStyle">
     <div class="main">
       <AppTopbar />
       <main class="content">
         <router-view />
       </main>
     </div>
+    </div>
+    <div v-if="dev" class="res-badge num">{{ resLabel }}</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
 import AppTopbar from '@ui/AppTopbar.vue';
 import { useAppStore } from '@stores/app';
 import { realtime } from '@/composables/realtime';
 
 const app = useAppStore();
+const dev = import.meta.env.DEV;
+const winSize = ref({ w: window.innerWidth, h: window.innerHeight });
+
+/** fit 等比铺满：非 16:9 取 min 居中留黑边 */
+const shellStyle = computed(() => {
+  const s = Math.min(winSize.value.w / app.canvasW, winSize.value.h / app.canvasH);
+  return {
+    width: `${app.canvasW}px`,
+    height: `${app.canvasH}px`,
+    zoom: app.canvasZoom,
+    transform: `scale(${s.toFixed(4)})`,
+  };
+});
+const resLabel = computed(
+  () => `${app.canvasW}×${app.canvasH} · s${Math.min(winSize.value.w / app.canvasW, winSize.value.h / app.canvasH).toFixed(2)}`,
+);
 
 /** 图表 resize 信号（轻量 provide/inject，替代事件总线） */
 const contentResizeTick = ref(0);
@@ -39,32 +58,58 @@ function bumpTick(): void {
   }, 150);
 }
 
-function onWindowResize(): void {
+
+
+function onWinResize(): void {
+  winSize.value = { w: window.innerWidth, h: window.innerHeight };
   bumpTick();
 }
 
 onMounted(() => {
+  app.initScaleTier();
   realtime.start(); // 无参启动：仅 SSE 告警频道；页面随后传入数据池时因 _running 幂等跳过
-  window.addEventListener('resize', onWindowResize);
+  window.addEventListener('resize', onWinResize);
   unbindFs = app.bindFullscreenSync();
   watch(() => app.fullscreen, () => bumpTick()); // 全屏切换 → 面板显隐 → 图表 resize
+  watch(() => app.scaleTier, () => setTimeout(bumpTick, 350)); // 档位切换 → zoom 重排 → 图表 resize
 });
 
 let unbindFs: (() => void) | null = null;
 
 onBeforeUnmount(() => {
   unbindFs?.();
-  window.removeEventListener('resize', onWindowResize);
+  window.removeEventListener('resize', onWinResize);
   if (resizeTimer) clearTimeout(resizeTimer);
 });
 </script>
 
 <style scoped>
-.shell {
-  display: flex;
+.stage {
+  width: 100vw;
   height: 100vh;
-  min-width: 1366px; /* 非 16:9 / 窄屏兜底：超出出横滚 */
+  background: #000; /* 留黑边：与屏体融合 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.shell {
+  flex: none;
+  display: flex;
+  transform-origin: center center;
   background: var(--well-deep);
+  overflow: hidden;
+  position: relative;
+}
+.res-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  z-index: 99;
+  font-size: 11px;
+  color: var(--text-dim);
+  opacity: 0.4;
+  pointer-events: none;
 }
 .main {
   position: relative; /* 全屏态顶栏浮层的定位锚点 */

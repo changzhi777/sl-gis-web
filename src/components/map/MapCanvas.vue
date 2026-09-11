@@ -352,7 +352,7 @@ const BASEMAPS: BasemapDef[] = [
     : []),
 ];
 const initialBasemapIdx = BASEMAPS.findIndex((b) => b.key === props.basemap);
-const basemapIdx = ref(initialBasemapIdx >= 0 ? initialBasemapIdx : 0); // 缺省 ESRI 卫星影像
+const basemapIdx = ref(initialBasemapIdx); // 缺省无底图（纯矢量网格 · 左下按钮循环切换）
 const basemapKey = computed(() => (basemapIdx.value >= 0 ? BASEMAPS[basemapIdx.value].key : ''));
 const basemapDef = computed(() => (basemapIdx.value >= 0 ? BASEMAPS[basemapIdx.value] : null));
 function cycleBasemap(): void {

@@ -14,7 +14,7 @@
       <div class="map-host">
         <MapCanvas
           ref="mapRef"
-          :tilt="tiltOn ? 25 : 0"
+          :tilt="tiltDeg"
           :projects="liveProjects"
           :monitors="layerFiltered.monitors"
           :pipes="layerFiltered.pipes"
@@ -63,7 +63,16 @@
             @click="layers[c.key] = !layers[c.key]"
           >{{ c.label }}</button>
           <button class="chip reset" title="复位视角" @click="mapRef?.reset()">⌖ 复位</button>
-          <button class="chip tilt" title="2D ↔ 伪 3D 倾斜" @click="tiltOn = !tiltOn">{{ tiltOn ? '25°' : '2D' }}</button>
+          <div class="tilt-group" role="group" aria-label="视角角度">
+            <button
+              v-for="a in TILT_STEPS"
+              :key="a"
+              type="button"
+              class="chip tilt"
+              :class="{ on: tiltDeg === a }"
+              @click="tiltDeg = a"
+            >{{ a === 0 ? '2D' : a + '°' }}</button>
+          </div>
         </div>
       </div>
     </template>
@@ -173,8 +182,9 @@ const layerFiltered = computed(() => ({
 
 /* ---------- 选中详情（工程/告警互斥） ---------- */
 const mapRef = ref<InstanceType<typeof MapCanvas> | null>(null);
-/** 视角两态：25° 伪 3D（默认）↔ 2D 俯视 */
-const tiltOn = ref(true);
+/** 视角多档：2D 俯视 ↔ 15/25/40° 伪 3D（默认 25°） */
+const TILT_STEPS = [0, 15, 25, 40] as const;
+const tiltDeg = ref<number>(25);
 const app = useAppStore();
 const drawerOpen = ref(false);
 const fabCount = computed(() => liveAlerts.value.filter((a) => a.status === '未签收').length);
@@ -416,11 +426,21 @@ async function hydrateAlerts(): Promise<void> {
   color: var(--spring-green);
   border-left-color: var(--spring-green);
 }
+.tilt-group {
+  display: flex;
+  gap: 4px;
+}
 .chip.tilt {
   color: var(--flood-teal);
   border-left-color: var(--flood-teal);
-  min-width: 40px;
+  min-width: 36px;
   text-align: center;
+  opacity: 0.55;
+}
+.chip.tilt.on {
+  opacity: 1;
+  background: rgba(0, 194, 255, 0.14);
+  border-color: rgba(0, 194, 255, 0.55);
 }
 .chip:hover { opacity: 1; }
 

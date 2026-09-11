@@ -5,7 +5,8 @@
   · 左列：监测点水质指标（浊度/余氯/pH，超标红色）；中列：24h 浊度·余氯 + pH 趋势（TrendLine）
   · 右列：采样计划完成率（MiniRings）+ 超标事件与处置状态
   · 底部带：苏木达标率 / 监测点状态（StatusBars）/ 三级检测达标率（MiniRings）
-  · 数据源：mockData.monitors(type=quality) + cockpit + alerts，余氯/pH 按监测点种子确定性衍生
+  · 数据源（v8.3 真化）：/api/monitors?type=quality 真值（余氯/pH 按 id 确定性衍生）+ /api/alerts 水质事件
+    + /api/monitors/{code}/history 真时序（焦点监测点）+ monitor 频道 SSE 实时跳动；后端不可达回落 mock
 -->
 <template>
   <div class="screen">
@@ -63,8 +64,8 @@
         <div class="col-center">
           <Panel title="24h 浊度 · 余氯趋势" sub="国标：浊度 ≤1 NTU · 余氯 0.3–1.0 mg/L">
             <template #sub>
-              <i class="dot d1" aria-hidden="true"></i>浊度 NTU
-              <i class="dot d2" aria-hidden="true"></i>余氯 mg/L
+              <i class="dot d1" aria-hidden="true"></i>浊度 <b class="num tail">{{ tailValues.turbidity.toFixed(2) }}</b>
+              <i class="dot d2" aria-hidden="true"></i>余氯 <b class="num tail">{{ tailValues.chlorine.toFixed(2) }}</b>
             </template>
             <TrendLine
               :series="turbidityChlorineSeries"
@@ -74,7 +75,7 @@
               smooth
             />
           </Panel>
-          <Panel title="24h pH 趋势" sub="限值 6.5–8.5">
+          <Panel title="24h pH 趋势" :sub="`限值 6.5–8.5 · 当前 ${tailValues.ph.toFixed(2)}`">
             <TrendLine
               :series="phSeries"
               :x-labels="hourLabels"
@@ -143,7 +144,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import Panel from '@ui/Panel.vue';
 import KpiCard from '@ui/KpiCard.vue';
 import TrendLine from '@charts/TrendLine.vue';
@@ -151,7 +152,17 @@ import StatusBars from '@charts/StatusBars.vue';
 import MicroBar from '@charts/MicroBar.vue';
 import MiniRings from '@charts/MiniRings.vue';
 import { mockData } from '@mock/index';
-import type { MonitorPoint } from '@shared/types';
+import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
+import { mapMonitor, unpackItems } from '@shared/backend';
+import type { EmergencyEvent, MonitorPoint } from '@shared/types';
+
+/* ---------- live 数据（mock 起步 → /api/* 水合覆盖） ---------- */
+const liveMonitors = ref<MonitorPoint[]>(mockData.monitors);
+const liveAlerts = ref<EmergencyEvent[]>(mockData.alerts);
+const INITIAL_MOCK_IDS = new Set(mockData.alerts.map((a) => a.id));
+/** 焦点监测点真时序（24h） */
+const liveHistory = ref<number[]>([]);
+const offs: Array<() => void> = [];
 
 /* ---------- 国标限值 ---------- */
 const TURBIDITY_LIMIT = 1;    // NTU
@@ -214,7 +225,7 @@ function buildRow(m: MonitorPoint): QualityRow {
 }
 
 const qualityRows = computed<QualityRow[]>(() =>
-  mockData.monitors.filter((m) => m.type === 'quality').map(buildRow),
+  liveMonitors.value.filter((m) => m.type === 'quality').map(buildRow),
 );
 
 /* ---------- 顶部 KPI ---------- */
@@ -225,8 +236,9 @@ function avg(list: number[]): number {
 
 const kpi = computed(() => {
   const rows = qualityRows.value;
+  const ok = rows.filter((r) => r.bad.length === 0).length;
   return {
-    qualifiedRate: mockData.cockpit.quality.qualifiedRate,
+    qualifiedRate: rows.length ? +((ok / rows.length) * 100).toFixed(1) : mockData.cockpit.quality.qualifiedRate,
     chlorine: +avg(rows.map((r) => r.chlorine)).toFixed(2),
     turbidity: +avg(rows.map((r) => r.turbidity)).toFixed(2),
     ph: +avg(rows.map((r) => r.ph)).toFixed(2),
@@ -243,18 +255,33 @@ function sample24(history: number[]): number[] {
   return Array.from({ length: 24 }, (_, i) => +(history[i * 6] ?? history[history.length - 1]).toFixed(2));
 }
 
+/** 趋势焦点：首个超标点（无则第一个），随真数据响应式 */
+const focusRow = computed(() => qualityRows.value.find((r) => r.bad.length > 0) ?? qualityRows.value[0]);
+const focusId = computed(() => focusRow.value?.id ?? '');
+
 const turbidityChlorineSeries = computed(() => {
-  const rows = qualityRows.value;
-  const focus = rows.find((r) => r.bad.length > 0) ?? rows[0];
-  // 余氯 24h：日内低幅波动（清晨低 / 午后补氯回升）
   const chlorine = Array.from({ length: 24 }, (_, i) => {
     const phase = (i / 24) * Math.PI * 2;
     return +(0.55 + 0.1 * Math.sin(phase - Math.PI / 2) + (i % 4 - 1.5) * 0.012).toFixed(2);
   });
+  // 浊度：真时序（水合后）优先，回落 mock history
+  const hist = liveHistory.value.length
+    ? sample24(liveHistory.value)
+    : sample24(liveMonitors.value.find((m) => m.id === focusId.value)?.history ?? []);
   return [
-    { name: '浊度', data: focus ? sample24(mockData.monitors.find((m) => m.id === focus.id)?.history ?? []) : [] },
+    { name: '浊度', data: hist },
     { name: '余氯', data: chlorine },
   ];
+});
+
+/** 末端当前值（设计稿「末端标注 0.58/0.47」的等价呈现） */
+const tailValues = computed(() => {
+  const s = turbidityChlorineSeries.value;
+  return {
+    turbidity: s[0]?.data.at(-1) ?? 0,
+    chlorine: s[1]?.data.at(-1) ?? 0,
+    ph: phSeries.value[0]?.data.at(-1) ?? 0,
+  };
 });
 
 const phSeries = computed(() => {
@@ -297,8 +324,8 @@ function hhmm(iso: string): string {
 const events = computed<QualityEvent[]>(() => {
   const list: QualityEvent[] = [];
 
-  // 1) 告警引擎的水质事件
-  mockData.alerts
+  // 1) 后端告警（真数据 · 仅水质类型）
+  liveAlerts.value
     .filter((a) => a.type === 'water_quality')
     .forEach((a) => {
       list.push({
@@ -336,6 +363,67 @@ const disposeChips = computed(() => {
     value: events.value.filter((e) => e.status === label).length,
     color: DISPOSE_COLOR[label],
   }));
+});
+
+/* ---------- 生命周期：水合 + monitor 频道实时跳动 ---------- */
+async function hydrateMonitors(): Promise<void> {
+  const items = unpackItems(await apiFetch('/api/monitors?type=quality'));
+  if (!items?.length) return;
+  // 只覆盖水质类；其余类型保留 mock（本页不消费）
+  const quality = items.map(mapMonitor);
+  liveMonitors.value = [
+    ...mockData.monitors.filter((m) => m.type !== 'quality'),
+    ...quality,
+  ];
+}
+
+async function hydrateAlerts(): Promise<void> {
+  const items = unpackItems(await apiFetch('/api/alerts'));
+  if (!items?.length) return;
+  const stock = new Set(items.map((a) => String(a.id)));
+  const pending = liveAlerts.value.filter((a) => !stock.has(a.id) && !INITIAL_MOCK_IDS.has(a.id));
+  liveAlerts.value = [...pending, ...items.map((a) => ({
+    id: String(a.id), type: String(a.type) as EmergencyEvent['type'],
+    level: String(a.level) as EmergencyEvent['level'],
+    suMu: String(a.suMu ?? ''), location: String(a.location ?? ''),
+    description: String(a.description ?? ''), status: String(a.status) as EmergencyEvent['status'],
+    projectId: a.projectId ? String(a.projectId) : undefined,
+    time: String(a.time ?? new Date().toISOString()),
+    receivedBy: a.receivedBy ? String(a.receivedBy) : undefined,
+  }))];
+}
+
+async function hydrateHistory(): Promise<void> {
+  if (!focusId.value) return;
+  const data = await apiFetch<{ total: number; items: Array<{ ts: string; value: number }> }>(
+    `/api/monitors/${focusId.value}/history`,
+  );
+  if (!data?.items?.length) return;
+  liveHistory.value = data.items.map((h) => +h.value.toFixed(2));
+}
+
+onMounted(() => {
+  realtime.start({ monitors: mockData.monitors, alertPool: mockData.alerts });
+  void hydrateMonitors().then(hydrateHistory);
+  void hydrateAlerts();
+
+  // 实时值跳动（monitor 频道）：更新水质点 → KPI/超标标记/末端值联动
+  offs.push(onRealtime('monitor', (evt) => {
+    const points = evt.data.points as Array<{ id: string; value: number }>;
+    const hit = points.find((pt) => pt.id === focusId.value);
+    if (hit) {
+      liveHistory.value = [...liveHistory.value.slice(-143), +hit.value.toFixed(2)];
+    }
+    liveMonitors.value = liveMonitors.value.map((m) => {
+      const p = points.find((pt) => pt.id === m.id);
+      return p ? { ...m, value: p.value } : m;
+    });
+  }));
+});
+
+onBeforeUnmount(() => {
+  realtime.stop();
+  offs.forEach((off) => off());
 });
 
 /* ---------- 底部带：苏木达标率 / 监测点状态 / 三级达标 ---------- */
@@ -510,6 +598,11 @@ const stageRings = computed(() => [
 }
 .dot.d1 { background: var(--chart-1); }
 .dot.d2 { background: var(--chart-2); }
+.num.tail {
+  font-size: 13px;
+  color: var(--spring-green);
+  margin: 0 8px 0 2px;
+}
 
 /* ===== 右列 ===== */
 .rings-host {

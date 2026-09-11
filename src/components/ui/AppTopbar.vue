@@ -13,29 +13,36 @@
       </select>
     </div>
 
-    <!-- 页面菜单：下拉分组（v8.1 侧栏 → 顶栏下拉） -->
-    <div class="page-menu" ref="menuRoot">
-      <button class="page-trigger" type="button" @click.stop="menuOpen = !menuOpen" :aria-expanded="menuOpen">
-        <span class="page-title">{{ pageTitle }}</span>
-        <span class="caret" aria-hidden="true">{{ menuOpen ? '▴' : '▾' }}</span>
-      </button>
-      <div v-if="menuOpen" class="menu-panel">
-        <div v-for="g in MENU_GROUPS" :key="g.title" class="menu-group">
-          <div class="menu-gtitle">{{ g.title }}</div>
-          <button
-            v-for="m in g.items"
-            :key="m.path"
-            type="button"
-            class="menu-item"
-            :class="{ active: isActive(m.path) }"
-            @click="go(m.path)"
-          >
-            <svg class="mi" viewBox="0 0 16 16" aria-hidden="true"><path :d="m.icon" /></svg>
-            <span>{{ m.label }}</span>
-          </button>
-        </div>
+    <!-- 页面菜单：一级按钮横排 + 点击弹出二级（v8.5） -->
+    <nav class="nav-groups" ref="menuRoot" aria-label="主导航">
+      <div v-for="(g, gi) in MENU_GROUPS" :key="g.title" class="nav-group">
+        <button
+          class="nav-gbtn"
+          :class="{ open: openGroup === gi, active: groupActive(gi) }"
+          type="button"
+          :aria-expanded="openGroup === gi"
+          @click.stop="toggleGroup(gi)"
+        >
+          {{ g.title }}
+          <span class="caret" aria-hidden="true">{{ openGroup === gi ? '▴' : '▾' }}</span>
+        </button>
+        <Transition name="menu-drop">
+          <div v-if="openGroup === gi" class="sub-panel" :class="{ flip: gi >= 4 }">
+            <button
+              v-for="m in g.items"
+              :key="m.path"
+              type="button"
+              class="menu-item"
+              :class="{ active: isActive(m.path) }"
+              @click="go(m.path)"
+            >
+              <svg class="mi" viewBox="0 0 16 16" aria-hidden="true"><path :d="m.icon" /></svg>
+              <span>{{ m.label }}</span>
+            </button>
+          </div>
+        </Transition>
       </div>
-    </div>
+    </nav>
 
     <div class="search" role="search">
       <input
@@ -114,21 +121,24 @@ const banner = ref(BANNERS[0]);
 const route = useRoute();
 const router = useRouter();
 const menuRoot = ref<HTMLElement | null>(null);
-const menuOpen = ref(false);
-const pageTitle = computed(() => {
-  const t = route.meta.title;
-  return typeof t === 'string' && t ? t : route.path;
-});
+const openGroup = ref<number | null>(null);
+function toggleGroup(gi: number): void {
+  openGroup.value = openGroup.value === gi ? null : gi;
+}
+/** 当前路由所在组的序号（一级按钮高亮） */
+function groupActive(gi: number): boolean {
+  return MENU_GROUPS[gi].items.some((m) => isActive(m.path));
+}
 function isActive(path: string): boolean {
   return route.path === path || (path === '/archives' && route.path.startsWith('/archives'));
 }
 function go(path: string): void {
-  menuOpen.value = false;
+  openGroup.value = null;
   if (route.path !== path) router.push(path);
 }
 function onDocClick(e: MouseEvent): void {
-  if (menuOpen.value && menuRoot.value && !menuRoot.value.contains(e.target as Node)) {
-    menuOpen.value = false;
+  if (openGroup.value !== null && menuRoot.value && !menuRoot.value.contains(e.target as Node)) {
+    openGroup.value = null;
   }
 }
 
@@ -354,50 +364,73 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.page-menu { position: relative; }
-.page-trigger {
+.nav-groups {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+}
+.nav-group { position: relative; }
+.nav-gbtn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: 5px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text);
   background: transparent;
-  border: var(--border-w) solid transparent;
-  border-radius: var(--radius);
+  border: none;
+  border-bottom: 2px solid transparent;
   cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
-.page-trigger:hover { border-color: var(--line-vein); }
-.page-trigger .page-title { color: var(--text); overflow: visible; }
+.nav-gbtn:hover { color: var(--spring-green); }
+/* 当前路由所在组：文字高亮 + 下缘指示条 */
+.nav-gbtn.active {
+  color: #00ffe0;
+  border-bottom-color: var(--spring-green);
+}
+/* 打开态：保持高亮 */
+.nav-gbtn.open {
+  color: #00ffe0;
+  background: rgba(0, 194, 255, 0.08);
+}
 .caret { font-size: 10px; color: var(--text-dim); }
-.menu-panel {
+
+/* 二级下拉 */
+.sub-panel {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 10px);
   left: 0;
   z-index: 40;
-  display: flex;
-  gap: 18px;
-  padding: 14px 16px;
+  min-width: 168px;
+  padding: 6px;
   background: rgba(3, 8, 18, 0.96);
   border: var(--border-w) solid var(--line-vein);
   border-radius: var(--radius);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
-.menu-group { min-width: 110px; }
-.menu-gtitle {
-  font-size: 11px;
-  letter-spacing: 2px;
-  color: var(--text-dim);
-  opacity: 0.6;
-  padding-bottom: 6px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--line-vein);
-  white-space: nowrap;
+.sub-panel.flip { left: auto; right: 0; }
+.sub-panel::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 20px;
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  background: rgba(3, 8, 18, 0.96);
+  border-left: var(--border-w) solid var(--line-vein);
+  border-top: var(--border-w) solid var(--line-vein);
 }
+.sub-panel.flip::before { left: auto; right: 20px; }
 .menu-item {
   width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   font-size: 13px;
   color: var(--text);
   background: none;
@@ -409,6 +442,12 @@ onBeforeUnmount(() => {
 }
 .menu-item:hover { background: rgba(0, 194, 255, 0.1); }
 .menu-item.active { color: #00ffe0; background: rgba(0, 255, 224, 0.07); }
+
+/* 二级弹出过渡 */
+.menu-drop-enter-active { transition: opacity 0.18s ease, transform 0.18s ease; }
+.menu-drop-leave-active { transition: opacity 0.12s ease; }
+.menu-drop-enter-from { opacity: 0; transform: translateY(-6px); }
+.menu-drop-leave-to { opacity: 0; }
 .mi {
   flex: none;
   width: 16px;

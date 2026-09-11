@@ -69,10 +69,11 @@
           />
         </g>
 
-        <!-- a) 旗界：填充 + 外 1.6 / 内 0.8 双线（外线入场描边生长） -->
+        <!-- a) 旗界：填充 + 外 1.6 / 内 0.8 双线 + 曲线流动层（外线入场描边生长） -->
         <path v-for="(d, i) in bannerPaths" :key="`bf${i}`" class="banner-fill" :d="d" />
         <path v-for="(d, i) in bannerPaths" :key="`bi${i}`" class="banner-inner" :d="d" />
         <path ref="bannerOuterEl" class="banner-outer" :d="bannerMainPath" :style="bannerDrawStyle" />
+        <path class="banner-flow" :d="bannerMainPath" />
 
         <!-- b) 乡镇 choropleth（监测点 PIP 聚合在线率 · 5 档） + 界线 + 质心名称 -->
         <template v-for="t in townView" :key="t.name">
@@ -116,7 +117,14 @@
             :style="{ '--len': p.len, '--w': p.w, '--i': p.idx }"
             :marker-end="p.endArrow ? `url(#${p.markerId})` : undefined"
           />
-          <!-- 选中工程关联管线：恒速流光（90 units/s · dash=周长/8 · dashoffset 负向=顺流向） -->
+          <!-- 常态流动：与旗界曲线流动同款语言（低调慢速 · 方向=水流方向） -->
+          <path
+            class="pipe-stream"
+            :d="p.d"
+            :stroke-width="Math.max(1, p.w * 0.45)"
+            :style="{ '--len': p.len }"
+          />
+          <!-- 选中工程关联管线：恒速流光增强（90 units/s · dash=周长/8） -->
           <path
             v-if="p.active"
             class="pipe-flow"
@@ -149,15 +157,20 @@
           <title>{{ pj.p.name }} · {{ pj.p.grade }} 级 · {{ pj.p.status }}</title>
         </g>
 
-        <!-- e) 监测点：静态圆，告警态放大变色 -->
+        <!-- e) 监测点：点击显示引线标牌；告警态放大变色 -->
         <circle
           v-for="m in monitorView"
           :key="m.m.id"
           class="mon"
-          :class="[`mt-${m.m.type}`, { 'mon-alarm': m.m.status === 'alarm' }]"
+          :class="[`mt-${m.m.type}`, { 'mon-alarm': m.m.status === 'alarm', sel: m.m.id === props.selectedMonitorId }]"
           :cx="m.x"
           :cy="m.y"
           :r="m.m.status === 'alarm' ? 3.5 : 2.5"
+          role="button"
+          tabindex="0"
+          :aria-label="`监测点 ${m.m.id}，${m.m.value}`"
+          @click.stop="emit('monitor-click', m.m)"
+          @keydown.enter.prevent="emit('monitor-click', m.m)"
         >
           <title>{{ m.m.id }} · {{ m.m.value }}</title>
         </circle>
@@ -273,6 +286,8 @@ const props = defineProps<{
   selectedProjectId?: string | null;
   /** 选中事件（脉冲 halo 增强 · 应急页联动） */
   selectedEventId?: string | null;
+  /** 选中监测点（点击标牌联动） */
+  selectedMonitorId?: string | null;
   /** 自定义标记（应急资源驻点等） */
   markers?: MapMarker[];
   /** 自定义连线（资源→事件调度线等） */
@@ -301,6 +316,7 @@ const emit = defineEmits<{
   'alert-click': [event: EmergencyEvent];
   'focus-end': [];
   'marker-click': [id: string];
+  'monitor-click': [monitor: MonitorPoint];
 }>();
 
 /* ================= 投影 + GeoJSON 边界 ================= */
@@ -794,37 +810,51 @@ const MON_UNIT: Record<MonitorPoint['type'], string> = {
   level: 'm',
 };
 const labelSpecs = computed<LabelSpec[]>(() => {
-  // 标牌总量预算 ≤10：A→B→C 优先截断（projectView 生成序即 A→D），告警/选中恒显
-  const pjAll = projectView.value.filter(
-    (pj) => pj.p.grade !== 'D' || pj.p.id === props.selectedProjectId,
-  );
-  const alertCount = alertView.value.length;
-  const budget = Math.max(3, 10 - alertCount);
-  let pjLabels = pjAll;
-  if (pjLabels.length + alertCount > 10) pjLabels = pjLabels.slice(0, budget);
-  return [
-  ...pjLabels
-    .map((pj) => {
+  // 点击驱动：默认地图纯净无标牌；点击工程/告警/监测点 → 该站点引线标牌（互斥天然错开）
+  const specs: LabelSpec[] = [];
+  if (props.selectedProjectId) {
+    const pj = projectView.value.find((x) => x.p.id === props.selectedProjectId);
+    if (pj) {
       const mon = props.monitors.find((m) => m.projectId === pj.p.id);
-      return {
+      specs.push({
         key: `p-${pj.p.id}`,
         text: pj.p.name,
         plant: pj.p.grade === 'A' && /水厂|供水站/.test(pj.p.name),
-        sel: pj.p.id === props.selectedProjectId,
+        sel: true,
         x: pj.x,
         y: pj.y,
         value: mon ? `${mon.value} ${MON_UNIT[mon.type]}` : undefined,
-      };
-    }),
-    ...alertView.value.map((a) => ({
-    key: `a-${a.e.id}`,
-    text: `${TYPE_LABEL[a.e.type]} · ${a.e.level}`,
-    plant: false,
-    sel: false,
-    x: a.x,
-    y: a.y,
-  })),
-  ];
+      });
+    }
+  }
+  if (props.selectedEventId) {
+    const a = alertView.value.find((x) => x.e.id === props.selectedEventId);
+    if (a) {
+      specs.push({
+        key: `a-${a.e.id}`,
+        text: `${TYPE_LABEL[a.e.type]} · ${a.e.level}`,
+        plant: false,
+        sel: false,
+        x: a.x,
+        y: a.y,
+      });
+    }
+  }
+  if (props.selectedMonitorId) {
+    const m = monitorView.value.find((x) => x.m.id === props.selectedMonitorId);
+    if (m) {
+      specs.push({
+        key: `m-${m.m.id}`,
+        text: m.m.id,
+        plant: false,
+        sel: false,
+        x: m.x,
+        y: m.y,
+        value: `${m.m.value} ${MON_UNIT[m.m.type]}`,
+      });
+    }
+  }
+  return specs;
 });
 
 /** 8 槽位：左上/右上 × 长短 × 再左右偏移（屏幕 px，相对锚点） */
@@ -1115,6 +1145,11 @@ watch(labelSpecs, async () => {
 .mon {
   stroke: var(--well-deep);
   stroke-width: 0.6;
+  cursor: pointer;
+}
+.mon.sel {
+  stroke: var(--spring-green);
+  stroke-width: 1.6;
 }
 .mt-pressure { fill: var(--mon-pressure); }
 .mt-flow { fill: var(--mon-flow); }
@@ -1206,6 +1241,31 @@ watch(labelSpecs, async () => {
   fill: none;
   stroke: currentColor;
   opacity: 0;
+}
+
+/* ===== 曲线流动（旗界 + 水管同款语言） ===== */
+.banner-flow {
+  fill: none;
+  stroke: rgba(0, 255, 224, 0.5);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-dasharray: 24 340;
+  animation: mc-flow-line 9s linear infinite;
+  pointer-events: none;
+}
+.pipe-stream {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.75);
+  stroke-linecap: round;
+  stroke-dasharray: 14 110;
+  animation: mc-stream 4.5s linear infinite;
+  pointer-events: none;
+}
+@keyframes mc-stream {
+  to { stroke-dashoffset: -124; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .banner-flow, .pipe-stream { animation: none; opacity: 0.5; }
 }
 
 /* ===== g) 旗界扫光（唯一 gated 循环动画） ===== */
@@ -1328,5 +1388,6 @@ watch(labelSpecs, async () => {
   .sweep { display: none; }
   .evt .pulse { animation: none; opacity: 0.22; }
   .map-dispatch { animation: none; }
+  .banner-flow, .pipe-stream { animation: none; opacity: 0.35; }
 }
 </style>

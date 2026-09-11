@@ -20,8 +20,11 @@
           :pipes="layerFiltered.pipes"
           :alerts="layerFiltered.alerts"
           :selected-project-id="selectedProject?.id ?? null"
+          :selected-monitor-id="selectedMonitor?.id ?? null"
+          :selected-event-id="selectedAlert?.id ?? null"
           @project-click="onProjectClick"
           @alert-click="onAlertClick"
+          @monitor-click="onMonitorClick"
         />
 
         <!-- 全屏态：未签收浮标（点击唤出告警抽屉） -->
@@ -70,15 +73,15 @@
       <Panel
         v-if="detail"
         :variant="detail.kind === 'alert' ? 'alarm' : 'default'"
-        :title="detail.kind === 'alert' ? '告警详情' : '工程详情'"
+        :title="detail.kind === 'alert' ? '告警详情' : detail.kind === 'monitor' ? '监测点详情' : '工程详情'"
         :sub="detail.id"
         class="detail-card"
       >
         <div class="dfields">
-          <div class="df"><span class="k">{{ detail.kind === 'alert' ? '位置' : '所属' }}</span><span class="v2" :title="detail.rows.location">{{ detail.rows.location }}</span></div>
-          <div class="df"><span class="k">{{ detail.kind === 'alert' ? '等级' : '分级' }}</span><span class="v2">{{ detail.rows.grade }}</span></div>
+          <div class="df"><span class="k">{{ detail.kind === 'monitor' ? '所属工程' : detail.kind === 'alert' ? '位置' : '所属' }}</span><span class="v2" :title="detail.rows.location">{{ detail.rows.location }}</span></div>
+          <div class="df"><span class="k">{{ detail.kind === 'monitor' ? '类型' : detail.kind === 'alert' ? '等级' : '分级' }}</span><span class="v2">{{ detail.rows.grade }}</span></div>
           <div class="df"><span class="k">状态</span><span class="v2">{{ detail.rows.status }}</span></div>
-          <div class="df"><span class="k">责任人</span><span class="v2">{{ detail.rows.owner }}</span></div>
+          <div class="df"><span class="k">{{ detail.kind === 'monitor' ? '实时值' : '责任人' }}</span><span class="v2">{{ detail.rows.owner }}</span></div>
         </div>
         <div class="ddesc">{{ detail.rows.desc }}</div>
       </Panel>
@@ -180,13 +183,28 @@ function onFsEsc(e: KeyboardEvent): void {
 }
 const selectedProject = ref<Project | null>(null);
 const selectedAlert = ref<EmergencyEvent | null>(null);
+const selectedMonitor = ref<MonitorPoint | null>(null);
 
 interface DetailView {
-  kind: 'project' | 'alert';
+  kind: 'project' | 'alert' | 'monitor';
   id: string;
   rows: { location: string; grade: string; status: string; owner: string; desc: string };
 }
 const detail = computed<DetailView | null>(() => {
+  if (selectedMonitor.value) {
+    const m = selectedMonitor.value;
+    const over = m.status === 'alarm';
+    return {
+      kind: 'monitor', id: m.id,
+      rows: {
+        location: liveProjects.value.find((p) => p.id === m.projectId)?.name ?? m.projectId,
+        grade: m.type,
+        status: over ? '超标' : '正常',
+        owner: `${m.value}`,
+        desc: `${m.id} 实时监测值`,
+      },
+    };
+  }
   if (selectedProject.value) {
     const p = selectedProject.value;
     return {
@@ -207,12 +225,21 @@ const detail = computed<DetailView | null>(() => {
 function onProjectClick(p: Project): void {
   selectedProject.value = p;
   selectedAlert.value = null;
+  selectedMonitor.value = null;
   mapRef.value?.focus(p.coord[0], p.coord[1]);
+}
+
+function onMonitorClick(m: MonitorPoint): void {
+  selectedMonitor.value = selectedMonitor.value?.id === m.id ? null : m;
+  selectedProject.value = null;
+  selectedAlert.value = null;
+  mapRef.value?.focus(m.coord[0], m.coord[1]);
 }
 
 function onAlertClick(a: EmergencyEvent): void {
   selectedAlert.value = a;
   selectedProject.value = null;
+  selectedMonitor.value = null;
   // BX- 报修无工程坐标，仅选中不聚焦
   const coord = a.projectId ? liveProjects.value.find((p) => p.id === a.projectId)?.coord : undefined;
   if (coord) mapRef.value?.focus(coord[0], coord[1]);

@@ -65,6 +65,7 @@
             <div class="emap-host">
               <MapCanvas
                 ref="mapRef"
+                basemap="carto"
                 :projects="liveProjects"
                 :monitors="liveMonitors"
                 :pipes="[]"

@@ -11,6 +11,9 @@
 -->
 <template>
   <div ref="rootEl" class="mc-root" :class="{ 'intro-run': introActive }">
+    <!-- 倾斜舞台（tilt>0 时地图本体后仰 · 标牌/引线层留平面自动 billboard） -->
+    <div class="mc-stage">
+      <div class="mc-tilt" :style="tiltStyle">
     <svg
       class="mc-svg"
       :viewBox="`0 0 ${MAP_W} ${mapH}`"
@@ -211,6 +214,8 @@
         </g>
       </g>
     </svg>
+      </div>
+    </div>
 
     <!-- 底图切换（左上循环） -->
     <button class="basemap-btn" type="button" @click="cycleBasemap" :title="`底图：${basemapDef?.label ?? '无'}`">
@@ -259,6 +264,10 @@ const props = defineProps<{
   markers?: MapMarker[];
   /** 自定义连线（资源→事件调度线等） */
   links?: MapLink[];
+  /** 伪 3D 倾斜角（0=俯视 2D · 一张图默认 25；标牌/引线恒平免补偿） */
+  tilt?: number;
+  /** 初始底图 key（esri/carto/tdt-* · 缺省 esri 卫星；不存在回落 esri） */
+  basemap?: string;
 }>();
 
 export interface MapMarker {
@@ -301,8 +310,9 @@ const BASEMAPS: BasemapDef[] = [
     url: (x, y, z) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
   },
   {
-    key: 'carto', label: '深色矢量', dim: 0.15,
-    url: (x, y, z) => `https://a.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`,
+    // 高德暗夜蓝（GCJ-02 · 全景尺度偏移不可见）
+    key: 'carto', label: '深色矢量', dim: 0.12,
+    url: (x, y, z) => `https://webst01.is.autonavi.com/appmaptile?style=7&x=${x}&y=${y}&z=${z}`,
   },
   ...(TIANDITU_TK
     ? [
@@ -312,7 +322,8 @@ const BASEMAPS: BasemapDef[] = [
       ]
     : []),
 ];
-const basemapIdx = ref(0); // 默认 ESRI 卫星影像（免 key）
+const initialBasemapIdx = BASEMAPS.findIndex((b) => b.key === props.basemap);
+const basemapIdx = ref(initialBasemapIdx >= 0 ? initialBasemapIdx : 0); // 缺省 ESRI 卫星影像
 const basemapKey = computed(() => (basemapIdx.value >= 0 ? BASEMAPS[basemapIdx.value].key : ''));
 const basemapDef = computed(() => (basemapIdx.value >= 0 ? BASEMAPS[basemapIdx.value] : null));
 function cycleBasemap(): void {
@@ -379,6 +390,12 @@ const baseTiles = computed<BaseTile[]>(() => {
 });
 
 /* ================= h) 入场编排（2.8s · 仅首挂载 · reduced-motion 直达终态） ================= */
+/** 倾斜角 → transform（0 时不建 3D 上下文，应急页零开销） */
+/** 恒返回 transform 字符串（0deg 而非 undefined——style 移除回退 none 不触发过渡） */
+const tiltStyle = computed<CSSProperties>(() => ({
+  transform: `rotateX(-${props.tilt && props.tilt > 0 ? props.tilt : 0}deg)`,
+}));
+
 const reduced =
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const introActive = ref(!reduced);
@@ -832,6 +849,25 @@ watch(labelSpecs, async () => {
 }
 .viewport {
   transition: transform 0.7s cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+
+/* ===== 倾斜舞台（伪 3D · 仅倾斜 svg 本体，标牌层平面覆盖） ===== */
+.mc-stage {
+  position: absolute;
+  inset: 0;
+  perspective: 1400px;
+  pointer-events: none;
+}
+.mc-tilt {
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 100%; /* 底缘为轴向远处后仰 */
+  transition: transform 0.6s cubic-bezier(0.22, 0.8, 0.3, 1);
+  will-change: transform;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-tilt { transition: none; }
 }
 
 /* ===== 0) 实体地图瓦片底图 ===== */

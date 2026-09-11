@@ -117,11 +117,17 @@
             :style="{ '--len': p.len, '--w': p.w, '--i': p.idx }"
             :marker-end="p.endArrow ? `url(#${p.markerId})` : undefined"
           />
-          <!-- 常态流动：与旗界曲线流动同款语言（低调慢速 · 方向=水流方向） -->
+          <!-- 常态流动光珠：光晕层 + 亮芯层（与旗界曲线流动同款语言 · 方向=水流方向） -->
           <path
-            class="pipe-stream"
+            class="pipe-stream glow"
             :d="p.d"
-            :stroke-width="Math.max(1, p.w * 0.45)"
+            :stroke-width="Math.max(2.4, p.w * 1.5)"
+            :style="{ '--len': p.len }"
+          />
+          <path
+            class="pipe-stream core"
+            :d="p.d"
+            :stroke-width="Math.max(1.2, p.w * 0.7)"
             :style="{ '--len': p.len }"
           />
           <!-- 选中工程关联管线：恒速流光增强（90 units/s · dash=周长/8） -->
@@ -1255,11 +1261,16 @@ watch(labelSpecs, async () => {
 }
 .pipe-stream {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.75);
   stroke-linecap: round;
-  stroke-dasharray: 14 110;
-  animation: mc-stream 4.5s linear infinite;
+  stroke-dasharray: 22 104;
+  animation: mc-stream 3.6s linear infinite;
   pointer-events: none;
+}
+.pipe-stream.glow {
+  stroke: rgba(0, 255, 224, 0.3);
+}
+.pipe-stream.core {
+  stroke: #aef7ff;
 }
 @keyframes mc-stream {
   to { stroke-dashoffset: -124; }

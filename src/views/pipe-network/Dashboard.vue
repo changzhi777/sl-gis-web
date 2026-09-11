@@ -183,8 +183,8 @@ const layerFiltered = computed(() => ({
 /* ---------- 选中详情（工程/告警互斥） ---------- */
 const mapRef = ref<InstanceType<typeof MapCanvas> | null>(null);
 /** 视角多档：2D 俯视 ↔ 15/25/40° 伪 3D（默认 25°） */
-const TILT_STEPS = [0, 15, 25, 35, 45, 55] as const;
-const tiltDeg = ref<number>(25);
+const TILT_STEPS = [0, 15, -35, -75, 45, 55] as const;
+const tiltDeg = ref<number>(-35);
 const app = useAppStore();
 const drawerOpen = ref(false);
 const fabCount = computed(() => liveAlerts.value.filter((a) => a.status === '未签收').length);

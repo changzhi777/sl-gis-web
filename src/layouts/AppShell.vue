@@ -11,7 +11,7 @@
   <div class="stage">
     <div class="shell" :style="shellStyle">
     <div class="main">
-      <AppTopbar />
+      <AppTopbar :res-tier="app.resTier" />
       <main class="content">
         <router-view />
       </main>
@@ -29,21 +29,18 @@ import { realtime } from '@/composables/realtime';
 
 const app = useAppStore();
 const dev = import.meta.env.DEV;
-const winSize = ref({ w: window.innerWidth, h: window.innerHeight });
 
-/** fit 等比铺满：非 16:9 取 min 居中留黑边；4K 档 = 渲染标度 ×2（非 4K 屏中心裁切放大，投墙近看模式） */
-const shellStyle = computed(() => {
-  const base = Math.min(winSize.value.w / 1920, winSize.value.h / 1080);
-  const s = app.scaleTier === '4k' ? base * 2 : base;
-  return {
-    width: '1920px',
-    height: '1080px',
-    transform: `scale(${s.toFixed(4)})`,
-  };
-});
-const resLabel = computed(
-  () => `${app.scaleTier === '4k' ? '3840×2160' : '1920×1080'} · s${(Math.min(winSize.value.w / 1920, winSize.value.h / 1080) * (app.scaleTier === '4k' ? 2 : 1)).toFixed(2)}`,
-);
+/** 统一模式：恒 1920×1080 逻辑画布 · fit 等比铺满任何屏（非 16:9 居中留黑）· 无手动档位 */
+const shellStyle = computed(() => ({
+  width: '1920px',
+  height: '1080px',
+  transform: `scale(${app.fitScale.toFixed(4)})`,
+}));
+const resLabel = computed(() => `${app.resTier} · s${app.fitScale.toFixed(2)}`);
+
+function syncViewport(): void {
+  app.viewport = { w: window.innerWidth, h: window.innerHeight };
+}
 
 /** 图表 resize 信号（轻量 provide/inject，替代事件总线） */
 const contentResizeTick = ref(0);
@@ -61,17 +58,16 @@ function bumpTick(): void {
 
 
 function onWinResize(): void {
-  winSize.value = { w: window.innerWidth, h: window.innerHeight };
+  syncViewport();
   bumpTick();
 }
 
 onMounted(() => {
-  app.initScaleTier();
+  syncViewport();
   realtime.start(); // 无参启动：仅 SSE 告警频道；页面随后传入数据池时因 _running 幂等跳过
   window.addEventListener('resize', onWinResize);
   unbindFs = app.bindFullscreenSync();
   watch(() => app.fullscreen, () => bumpTick()); // 全屏切换 → 面板显隐 → 图表 resize
-  watch(() => app.scaleTier, () => setTimeout(bumpTick, 350)); // 档位切换 → zoom 重排 → 图表 resize
 });
 
 let unbindFs: (() => void) | null = null;

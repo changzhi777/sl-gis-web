@@ -26,7 +26,6 @@
           {{ g.title }}
           <span class="caret" aria-hidden="true">{{ openGroup === gi ? '▴' : '▾' }}</span>
         </button>
-        <Transition name="menu-drop">
           <div v-if="openGroup === gi" class="sub-panel">
             <button
               v-for="m in g.items"
@@ -40,7 +39,6 @@
               <span>{{ m.label }}</span>
             </button>
           </div>
-        </Transition>
       </div>
     </nav>
 
@@ -73,20 +71,7 @@
         <b class="num">{{ alarmCount }}</b>
         <span class="lamp-text">未签收告警</span>
       </span>
-      <div v-show="!app.fullscreen" class="res-tier" role="group" aria-label="渲染分辨率档位">
-        <button
-          type="button"
-          class="tier-btn"
-          :class="{ active: app.scaleTier === '1080p' }"
-          @click="app.setScaleTier('1080p')"
-        >1080P</button>
-        <button
-          type="button"
-          class="tier-btn"
-          :class="{ active: app.scaleTier === '4k' }"
-          @click="app.setScaleTier('4k')"
-        >4K</button>
-      </div>
+      <span v-show="!app.fullscreen" class="res-tier num" :title="`等效渲染分辨率 ${resTier}`">{{ resTier }}</span>
       <button
         class="fs-btn"
         type="button"
@@ -112,6 +97,8 @@ import { useMapFocusStore } from '@stores/mapFocus';
 import { useAppStore } from '@stores/app';
 import { MENU_GROUPS } from '@ui/appMenu';
 import type { Project } from '@shared/types';
+
+defineProps<{ resTier: string }>();
 
 /* ---------- 旗县切换（搬 TopBar.vue 口径：本地视觉状态，1 期不落库） ---------- */
 const BANNERS = ['苏尼特右旗', '苏尼特左旗', '阿巴嘎旗', '西乌珠穆沁旗', '东乌珠穆沁旗'];
@@ -160,15 +147,6 @@ function onFsPointer(): void {
   if (app.fullscreen) wakeFsBar();
 }
 /** 4K 档在非 4K 物理屏的提示（一次性） */
-let tierToastShown = false;
-watch(() => app.scaleTier, (tier) => {
-  if (tier !== '4k' || tierToastShown) return;
-  const physW = (window.screen?.width ?? 0) * (window.devicePixelRatio || 1);
-  if (physW < 3840) {
-    tierToastShown = true;
-    console.info('[分辨率] 当前为 1080P 级物理屏，4K 档用于 4K 大屏高清渲染');
-  }
-});
 const p2 = (n: number) => String(n).padStart(2, '0');
 function tickClock(): void {
   const d = new Date();
@@ -441,11 +419,6 @@ onBeforeUnmount(() => {
 .menu-item:hover { background: rgba(0, 194, 255, 0.1); }
 .menu-item.active { color: #00ffe0; background: rgba(0, 255, 224, 0.07); }
 
-/* 二级弹出过渡 */
-.menu-drop-enter-active { transition: opacity 0.18s ease, transform 0.18s ease; }
-.menu-drop-leave-active { transition: opacity 0.12s ease; }
-.menu-drop-enter-from { opacity: 0; transform: translateY(-6px); }
-.menu-drop-leave-to { opacity: 0; }
 .mi {
   flex: none;
   width: 16px;
@@ -458,26 +431,15 @@ onBeforeUnmount(() => {
 }
 .res-tier {
   flex: none;
-  display: flex;
-  border: var(--border-w) solid var(--line-vein);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-.tier-btn {
   padding: 4px 10px;
   font-size: 12px;
-  color: var(--text-dim);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease;
+  font-weight: 600;
+  color: var(--spring-green);
+  background: rgba(0, 194, 255, 0.08);
+  border: var(--border-w) solid rgba(0, 194, 255, 0.3);
+  border-radius: var(--radius);
+  letter-spacing: 1px;
 }
-.tier-btn + .tier-btn { border-left: var(--border-w) solid var(--line-vein); }
-.tier-btn.active {
-  color: #00ffe0;
-  background: rgba(0, 194, 255, 0.12);
-}
-.tier-btn:hover { color: var(--spring-green); }
 
 .fs-btn {
   flex: none;

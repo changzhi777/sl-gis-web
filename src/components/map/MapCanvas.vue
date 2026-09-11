@@ -73,7 +73,8 @@
         <path v-for="(d, i) in bannerPaths" :key="`bf${i}`" class="banner-fill" :d="d" />
         <path v-for="(d, i) in bannerPaths" :key="`bi${i}`" class="banner-inner" :d="d" />
         <path ref="bannerOuterEl" class="banner-outer" :d="bannerMainPath" :style="bannerDrawStyle" />
-        <path class="banner-flow" :d="bannerMainPath" />
+        <path class="banner-flow outer" :d="bannerMainPath" />
+        <path class="banner-flow inner" :d="bannerMainPath" />
 
         <!-- b) 乡镇 choropleth（监测点 PIP 聚合在线率 · 5 档） + 界线 + 质心名称 -->
         <template v-for="t in townView" :key="t.name">
@@ -1252,12 +1253,22 @@ watch(labelSpecs, async () => {
 /* ===== 曲线流动（旗界 + 水管同款语言） ===== */
 .banner-flow {
   fill: none;
-  stroke: rgba(0, 255, 224, 0.5);
-  stroke-width: 1.2;
   stroke-linecap: round;
-  stroke-dasharray: 24 340;
-  animation: mc-flow-line 9s linear infinite;
   pointer-events: none;
+}
+/* 外沿：亮青正向 */
+.banner-flow.outer {
+  stroke: rgba(0, 255, 224, 0.6);
+  stroke-width: 1.6;
+  stroke-dasharray: 26 338;
+  animation: mc-flow-line 9s linear infinite;
+}
+/* 内沿：暗青反向（对流） */
+.banner-flow.inner {
+  stroke: rgba(0, 194, 255, 0.35);
+  stroke-width: 1;
+  stroke-dasharray: 18 200;
+  animation: mc-flow-line 7s linear infinite reverse;
 }
 .pipe-stream {
   fill: none;

@@ -27,7 +27,7 @@
           <span class="caret" aria-hidden="true">{{ openGroup === gi ? '▴' : '▾' }}</span>
         </button>
         <Transition name="menu-drop">
-          <div v-if="openGroup === gi" class="sub-panel" :class="{ flip: gi >= 4 }">
+          <div v-if="openGroup === gi" class="sub-panel">
             <button
               v-for="m in g.items"
               :key="m.path"
@@ -411,7 +411,6 @@ onBeforeUnmount(() => {
   border-radius: var(--radius);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
-.sub-panel.flip { left: auto; right: 0; }
 .sub-panel::before {
   content: '';
   position: absolute;
@@ -424,7 +423,6 @@ onBeforeUnmount(() => {
   border-left: var(--border-w) solid var(--line-vein);
   border-top: var(--border-w) solid var(--line-vein);
 }
-.sub-panel.flip::before { left: auto; right: 20px; }
 .menu-item {
   width: 100%;
   display: flex;

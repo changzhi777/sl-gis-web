@@ -1,9 +1,19 @@
 /**
- * useMapProjection — 等距投影 + GeoJSON 边界加载 composable
- * 自 emergency 事件地图抽取泛化（LAT0 余弦校正等距投影、bbox 自适应、
- * 旗界/乡镇界 path 化、乡镇多边形结构化：PIP 聚合 + 面积质心）。
+ * useMapProjection — Web 墨卡托投影（EPSG:3857 口径）+ GeoJSON 边界加载 composable
+ * v8.3：等距投影升级为墨卡托——与实体地图瓦片（天地图/ESRI/OSM XYZ 瓦片）严格对齐；
+ * API 形状不变（proj/MAP_W/mapH/bbox），业务层零改动自动跟随。
  * 纯几何 util（pointInPolygon / polygonCentroid / ringToD / bboxOf）一并导出复用。
  */
+
+/** Web 墨卡托纬度硬限制 */
+export const MERC_MAX_LAT = 85.051129;
+
+/** 纬度 → 墨卡托 y（全局像素归一系数 0..1，z 级世界宽 = 256×2^z） */
+export function mercNormY(lat: number): number {
+  const clamped = Math.max(-MERC_MAX_LAT, Math.min(MERC_MAX_LAT, lat));
+  const s = Math.sin((clamped * Math.PI) / 180);
+  return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
+}
 import { computed, ref } from 'vue';
 
 export interface Pt {
@@ -151,29 +161,36 @@ function largestRing(rings: Ring[]): Ring | null {
 export interface UseMapProjectionOptions {
   /** 地图坐标系宽度（viewBox 宽），默认 1000 */
   width?: number;
-  /** 余弦校正基准纬度，默认 42.8（锡盟中部） */
-  lat0?: number;
 }
 
 /**
  * 投影 composable：返回投影函数 + 边界 path 数据 + 加载状态。
  * bbox 初始为兜底值，banner.json 加载后按实测重算（点位随之自动重投影）。
  */
+/** 墨卡托纬度当量度（0 赤道 · 85.05°≈180）：与经度同量纲，投影 y 差 ×k 即 viewBox */
+export function mercYDeg(lat: number): number {
+  const clamped = Math.max(-MERC_MAX_LAT, Math.min(MERC_MAX_LAT, lat));
+  return (180 / Math.PI) * Math.log(Math.tan(Math.PI / 4 + (clamped * Math.PI) / 360));
+}
+
 export function useMapProjection(options: UseMapProjectionOptions = {}) {
   const MAP_W = options.width ?? 1000;
-  const LAT0 = options.lat0 ?? 42.8;
-  const COS0 = Math.cos((LAT0 * Math.PI) / 180);
 
   const bbox = ref<BBox>({ minLon: 111.15, maxLon: 114.55, minLat: 42.05, maxLat: 43.6 });
-  const kDeg = computed(
-    () => MAP_W / Math.max(1e-6, (bbox.value.maxLon - bbox.value.minLon) * COS0),
-  );
-  const mapH = computed(() => Math.round((bbox.value.maxLat - bbox.value.minLat) * kDeg.value));
 
-  /** 经纬度 → 地图坐标（等距投影 + LAT0 余弦校正） */
+  /** 经度方向比例（墨卡托 x 与经度严格线性；x/y 同 k = 保形） */
+  const k = computed(() => MAP_W / Math.max(1e-6, bbox.value.maxLon - bbox.value.minLon));
+  const mapH = computed(
+    () => Math.round((mercYDeg(bbox.value.maxLat) - mercYDeg(bbox.value.minLat)) * k.value),
+  );
+
+  /** 经纬度 → 地图坐标（Web 墨卡托 · 与 XYZ 瓦片网格对齐） */
   function proj(lon: number, lat: number): Pt {
-    const k = kDeg.value;
-    return { x: (lon - bbox.value.minLon) * k * COS0, y: (bbox.value.maxLat - lat) * k };
+    const kk = k.value;
+    return {
+      x: (lon - bbox.value.minLon) * kk,
+      y: (mercYDeg(bbox.value.maxLat) - mercYDeg(lat)) * kk,
+    };
   }
 
   const bannerPaths = ref<string[]>([]);
@@ -234,9 +251,8 @@ export function useMapProjection(options: UseMapProjectionOptions = {}) {
 
   return {
     MAP_W,
-    LAT0,
     bbox,
-    kDeg,
+    k,
     mapH,
     proj,
     bannerPaths,

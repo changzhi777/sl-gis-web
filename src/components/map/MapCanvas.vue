@@ -37,6 +37,29 @@
       </defs>
 
       <g class="viewport" :style="viewportStyle" @transitionend="onViewportTransitionEnd">
+        <!-- 0) 实体地图瓦片底图（XYZ · 墨卡托对齐 · 加载淡入）+ 深色蒙版 -->
+        <g class="base-tiles">
+          <image
+            v-for="tl in baseTiles"
+            :key="`${basemapKey}-${tl.z}-${tl.x}-${tl.y}`"
+            class="base-tile"
+            :href="tl.url"
+            :x="tl.vx"
+            :y="tl.vy"
+            :width="tl.size"
+            :height="tl.size"
+          />
+          <rect
+            v-if="basemapDef"
+            class="base-dim"
+            :x="0"
+            :y="0"
+            :width="MAP_W"
+            :height="mapH"
+            :style="{ opacity: basemapDef.dim }"
+          />
+        </g>
+
         <!-- a) 旗界：填充 + 外 1.6 / 内 0.8 双线（外线入场描边生长） -->
         <path v-for="(d, i) in bannerPaths" :key="`bf${i}`" class="banner-fill" :d="d" />
         <path v-for="(d, i) in bannerPaths" :key="`bi${i}`" class="banner-inner" :d="d" />
@@ -189,6 +212,12 @@
       </g>
     </svg>
 
+    <!-- 底图切换（左上循环） -->
+    <button class="basemap-btn" type="button" @click="cycleBasemap" :title="`底图：${basemapDef?.label ?? '无'}`">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 11.5 6 8l4 2.5 4.5-3.5v6L10 15.5 6 13l-4.5 3.5zM4 6.2a2 2 0 1 1 4 0c0 1.3-2 3.3-2 3.3S4 7.5 4 6.2Z" /></svg>
+      底图 · {{ basemapDef?.label ?? '无' }}
+    </button>
+
     <!-- 引线层（屏幕像素坐标系：锚点 → 槽位端斜线 + 短横杠） -->
     <svg class="mc-leaders" aria-hidden="true">
       <path v-for="l in labelItems" :key="`ld-${l.key}`" class="leader" :d="l.leader" />
@@ -215,7 +244,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { CSSProperties } from 'vue';
 import { GRADE_SHAPE } from '@shared/types';
 import type { EmergencyEvent, MonitorPoint, PipeSegment, Project } from '@shared/types';
-import { pointInPolygon, useMapProjection } from './composables/useMapProjection';
+import { mercNormY, pointInPolygon, useMapProjection } from './composables/useMapProjection';
 import type { Pt } from './composables/useMapProjection';
 
 const props = defineProps<{
@@ -253,7 +282,99 @@ const emit = defineEmits<{
 }>();
 
 /* ================= 投影 + GeoJSON 边界 ================= */
-const { MAP_W, mapH, proj, bannerPaths, bannerMainPath, towns, load } = useMapProjection();
+const { MAP_W, mapH, bbox, proj, bannerPaths, bannerMainPath, towns, load } = useMapProjection();
+
+/* ================= 0) 实体地图瓦片底图（XYZ · 可循环切换） ================= */
+const TIANDITU_TK = (import.meta.env.VITE_TIANDITU_TK as string | undefined) ?? '';
+interface BasemapDef {
+  key: string;
+  label: string;
+  url: (x: number, y: number, z: number) => string;
+  dim: number;
+  annotT?: string;
+}
+const BASEMAPS: BasemapDef[] = [
+  {
+    key: 'esri', label: '卫星影像', dim: 0.62,
+    url: (x, y, z) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
+  },
+  {
+    key: 'carto', label: '深色矢量', dim: 0.15,
+    url: (x, y, z) => `https://a.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`,
+  },
+  ...(TIANDITU_TK
+    ? [
+        { key: 'tdt-img', label: '天地影像', dim: 0.5, annotT: 'cia_w', url: (x: number, y: number, z: number) => `https://t0.tianditu.gov.cn/DataServer?T=img_w&x=${x}&y=${y}&l=${z}&tk=${TIANDITU_TK}` },
+        { key: 'tdt-ter', label: '天地地形', dim: 0.4, annotT: 'cta_w', url: (x: number, y: number, z: number) => `https://t0.tianditu.gov.cn/DataServer?T=ter_w&x=${x}&y=${y}&l=${z}&tk=${TIANDITU_TK}` },
+        { key: 'tdt-vec', label: '天地矢量', dim: 0.3, annotT: 'cva_w', url: (x: number, y: number, z: number) => `https://t0.tianditu.gov.cn/DataServer?T=vec_w&x=${x}&y=${y}&l=${z}&tk=${TIANDITU_TK}` },
+      ]
+    : []),
+];
+const basemapIdx = ref(-1);
+const basemapKey = computed(() => (basemapIdx.value >= 0 ? BASEMAPS[basemapIdx.value].key : ''));
+const basemapDef = computed(() => (basemapIdx.value >= 0 ? BASEMAPS[basemapIdx.value] : null));
+function cycleBasemap(): void {
+  basemapIdx.value = basemapIdx.value + 1 >= BASEMAPS.length ? -1 : basemapIdx.value + 1;
+}
+
+const tileZoom = computed(() => {
+  const raw = Math.log2((360 * MAP_W) / (256 * Math.max(1e-6, bbox.value.maxLon - bbox.value.minLon)));
+  return Math.min(12, Math.max(4, Math.floor(raw)));
+});
+
+interface BaseTile {
+  z: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  url: string;
+}
+const baseTiles = computed<BaseTile[]>(() => {
+  const def = basemapDef.value;
+  if (!def) return [];
+  const z = tileZoom.value;
+  const world = 256 * 2 ** z;
+  const b = bbox.value;
+  const gx = (lon: number) => ((lon + 180) / 360) * world;
+  const gyNw = mercNormY(b.maxLat) * world;
+  const gySe = mercNormY(b.minLat) * world;
+  const ox = gx(b.minLon);
+  const spanPx = gx(b.maxLon) - ox;
+  const s = MAP_W / Math.max(1e-6, spanPx);
+  const tx0 = Math.floor(ox / 256);
+  const tx1 = Math.floor((ox + spanPx) / 256);
+  const ty0 = Math.floor(gyNw / 256);
+  const ty1 = Math.floor(gySe / 256);
+  const tiles: BaseTile[] = [];
+  for (let ty = ty0; ty <= ty1; ty++) {
+    if (ty < 0 || ty >= 2 ** z) continue;
+    for (let tx = tx0; tx <= tx1; tx++) {
+      const wx = ((tx % 2 ** z) + 2 ** z) % 2 ** z;
+      tiles.push({
+        z, x: tx, y: ty,
+        vx: +((tx * 256 - ox) * s).toFixed(1),
+        vy: +((ty * 256 - gyNw * 1) * s).toFixed(1),
+        size: +(256 * s).toFixed(1),
+        url: def.url(wx, ty, z),
+      });
+    }
+    if (def.annotT) {
+      for (let tx = tx0; tx <= tx1; tx++) {
+        const wx = ((tx % 2 ** z) + 2 ** z) % 2 ** z;
+        tiles.push({
+          z, x: tx, y: ty,
+          vx: +((tx * 256 - ox) * s).toFixed(1),
+          vy: +((ty * 256 - gyNw) * s).toFixed(1),
+          size: +(256 * s).toFixed(1),
+          url: `https://t0.tianditu.gov.cn/DataServer?T=${def.annotT}&x=${wx}&y=${ty}&l=${z}&tk=${TIANDITU_TK}`,
+        });
+      }
+    }
+  }
+  return tiles;
+});
 
 /* ================= h) 入场编排（2.8s · 仅首挂载 · reduced-motion 直达终态） ================= */
 const reduced =
@@ -709,6 +830,48 @@ watch(labelSpecs, async () => {
 }
 .viewport {
   transition: transform 0.7s cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+
+/* ===== 0) 实体地图瓦片底图 ===== */
+.base-tile {
+  animation: tile-in 0.4s ease both;
+}
+@keyframes tile-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.base-dim {
+  fill: var(--well-deep);
+  pointer-events: none;
+}
+.basemap-btn {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: rgba(3, 8, 18, 0.8);
+  border: var(--border-w) solid var(--line-vein);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.basemap-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+}
+.basemap-btn:hover {
+  color: var(--spring-green);
+  border-color: rgba(0, 255, 224, 0.4);
 }
 
 /* ===== a) 旗界双线 ===== */

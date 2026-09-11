@@ -3,15 +3,16 @@
   · 顶栏/侧栏职责已上收全局 AppShell/AppTopbar
   · KPI 条：本月公告 / 在线报修 / 投诉建议 / 办结率 / 平均响应时长 / 满意度
   · 左列（400px）：信息公告（停水/限时供水/水质检测/恢复供水 × 公众号/小程序/热线）
-  · 中列（flex）：报修投诉工单池 —— 四阶段进度管道 + 近 7 日受理趋势 + 工单明细表
+  · 中列（flex）：报修投诉工单池 —— 三阶段进度管道（后端真三态）+ 近 7 日受理趋势 + 工单明细表
   · 右列（400px）：满意度评价（五星分布）+ 知识宣传 + 便民服务卡
-  · 数据全部来自 ./mock（页内确定性 mock），1 期无后端
+  · 数据（v9 真化）：/api/portal/notices + /api/repairs 真值水合，后端不可达回落 ./mock
+    满意度/知识宣传/便民服务/受理趋势保留 mock 口径（暂无对应接口）
 -->
 <template>
   <div class="screen">
     <!-- 顶部 KPI 条 -->
       <div class="kpi-strip" role="group" aria-label="公众服务关键指标">
-        <div v-for="k in pageKpis" :key="k.label" class="kpi-cell">
+        <div v-for="k in stripKpis" :key="k.label" class="kpi-cell">
           <KpiCard layout="block" :value="k.value" :unit="k.unit" :label="k.label" />
         </div>
       </div>
@@ -19,10 +20,10 @@
       <main class="grid">
         <!-- ============ 左列：信息公告 ============ -->
         <div class="col">
-          <Panel title="信息公告" :sub="`${notices.length} 条 · 三渠道同步发布`" class="f-full" hero>
+          <Panel title="信息公告" :sub="`${noticeCount} 条 · 三渠道同步发布`" class="f-full" hero>
             <div class="notice-list" role="list" aria-label="公告列表">
               <article
-                v-for="n in notices"
+                v-for="n in noticeRows"
                 :key="n.id"
                 class="notice"
                 role="listitem"
@@ -35,10 +36,10 @@
                   <span class="n-channel" :style="{ borderColor: CHANNEL_META[n.channel].color, color: CHANNEL_META[n.channel].color }">
                     <i class="n-chicon" :style="{ background: CHANNEL_META[n.channel].color }">{{ CHANNEL_META[n.channel].icon }}</i>{{ CHANNEL_META[n.channel].label }}
                   </span>
-                  <span class="n-scope">{{ n.id }}</span>
+                  <span class="n-scope" :title="n.scope">{{ n.scope }}</span>
                   <span class="n-time num">{{ n.publishAt }}</span>
-                  <span class="n-status" :class="{ live: n.status === '已发布' }">
-                    <i aria-hidden="true"></i>{{ n.status }}
+                  <span class="n-status" :class="{ live: n.live }">
+                    <i aria-hidden="true"></i>{{ n.live ? '已发布' : '已过期' }}
                   </span>
                 </div>
               </article>
@@ -48,8 +49,8 @@
 
         <!-- ============ 中列：报修与投诉工单池 ============ -->
         <div class="col">
-          <!-- 进度管道：四阶段计数卡 -->
-          <Panel title="工单受理进度" sub="待受理 → 处理中 → 待回访 → 已办结">
+          <!-- 进度管道：三阶段计数卡（对齐后端真三态） -->
+          <Panel title="工单受理进度" sub="待受理 → 处理中 → 已办结">
             <div class="pipeline" role="group" aria-label="工单四阶段进度">
               <template v-for="(s, i) in stageCards" :key="s.stage">
                 <div class="stage-card" :style="{ '--sc': s.color }">
@@ -77,24 +78,24 @@
             />
           </Panel>
 
-          <!-- 工单明细表（行左侧色条按类型） -->
-          <Panel title="报修与投诉工单" :sub="`本月 51 单 · 在办 ${openCount} 单`" class="f-full" variant="alarm">
+          <!-- 工单明细表（行左侧色条按问题类型） -->
+          <Panel title="报修与投诉工单" :sub="`共 ${ticketRows.length} 单 · 在办 ${openCount} 单`" class="f-full" variant="alarm">
             <div class="tk-head tk-grid" aria-hidden="true">
-              <span>编号</span><span>类型</span><span>嘎查村</span><span>内容摘要</span><span>当前阶段</span><span>受理人</span><span class="ta-r">时长</span>
+              <span>编号</span><span>类型</span><span>位置</span><span>内容摘要</span><span>当前阶段</span><span>受理人</span><span class="ta-r">时长</span>
             </div>
             <div class="tk-body" role="table" aria-label="工单明细">
               <div
-                v-for="t in tickets"
+                v-for="t in ticketRows"
                 :key="t.id"
                 class="tk-row tk-grid"
-                :style="{ '--tc': TICKET_TYPE_COLORS[t.type] }"
+                :style="{ '--tc': typeColor(t.category) }"
                 role="row"
               >
                 <span class="tk-id num">{{ t.id }}</span>
-                <span class="tk-type" :style="{ color: TICKET_TYPE_COLORS[t.type], borderColor: TICKET_TYPE_COLORS[t.type] }">{{ t.type }}</span>
-                <span class="tk-village" :title="t.village">{{ t.village }}</span>
+                <span class="tk-type" :style="{ color: typeColor(t.category), borderColor: typeColor(t.category) }">{{ t.category }}</span>
+                <span class="tk-village" :title="t.location">{{ t.location }}</span>
                 <span class="tk-sum" :title="t.summary">{{ t.summary }}</span>
-                <span class="tk-stage" :style="{ color: STAGE_COLORS[t.stage], borderColor: STAGE_COLORS[t.stage] }">{{ t.stage }}</span>
+                <span class="tk-stage" :style="{ color: STAGE_COLORS[t.status], borderColor: STAGE_COLORS[t.status] }">{{ t.status }}</span>
                 <span class="tk-handler">{{ t.handler }}</span>
                 <span class="tk-elapsed num ta-r">{{ t.elapsed }}</span>
               </div>
@@ -174,11 +175,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import KpiCard from '@ui/KpiCard.vue';
 import Panel from '@ui/Panel.vue';
 import TrendLine from '@charts/TrendLine.vue';
 import MicroBar from '@charts/MicroBar.vue';
+import { apiFetch } from '@/composables/realtime';
+import { unpackItems } from '@shared/backend';
 import {
   pageKpis,
   notices,
@@ -195,30 +198,171 @@ import {
   serviceInfo,
   weekTrend,
 } from './mock';
+import type { NoticeApiRow, NoticeChannel, NoticeType, RepairApiRow } from './mock';
 
-/* ---------- 进度管道：按工单池推导四阶段计数（口径与明细表一致） ---------- */
+/* ---------- live 数据（mock 起步 → /api/portal/notices + /api/repairs 水合覆盖） ---------- */
+const liveNotices = ref<NoticeApiRow[] | null>(null);
+const liveNoticeTotal = ref(0);
+const liveRepairs = ref<RepairApiRow[] | null>(null);
+
+async function hydrateNotices(): Promise<void> {
+  const data = await apiFetch<{ total: number; items: NoticeApiRow[] }>(
+    '/api/portal/notices?limit=10',
+  );
+  if (!data?.items?.length) return;
+  liveNotices.value = data.items;
+  liveNoticeTotal.value = data.total;
+}
+
+async function hydrateRepairs(): Promise<void> {
+  const items = unpackItems<RepairApiRow>(await apiFetch('/api/repairs'));
+  if (items?.length) liveRepairs.value = items;
+}
+
+onMounted(() => {
+  void hydrateNotices();
+  void hydrateRepairs();
+});
+
+/* ---------- KPI 条（公告/报修计数 + 办结率 ← 真值；投诉/响应时长/满意度 ← mock） ---------- */
+const doneRate = computed(() => {
+  const rows = liveRepairs.value;
+  if (!rows?.length) return pageKpis[3].value;
+  const done = rows.filter((r) => r.status === '已办结').length;
+  return +((done / rows.length) * 100).toFixed(1);
+});
+
+const stripKpis = computed(() => [
+  { label: '本月公告', value: liveNoticeTotal.value || pageKpis[0].value, unit: '条' },
+  { label: '在线报修', value: liveRepairs.value?.length ?? pageKpis[1].value, unit: '单' },
+  { label: '投诉建议', value: pageKpis[2].value, unit: '条' },
+  { label: '办结率', value: doneRate.value, unit: '%' },
+  { label: '平均响应时长', value: pageKpis[4].value, unit: 'h' },
+  { label: '群众满意度', value: pageKpis[5].value, unit: '分' },
+]);
+
+/* ---------- 信息公告（真值 → 统一展示行；mock 兜底沿用 id 作范围标识） ---------- */
+interface NoticeView {
+  id: number | string;
+  type: NoticeType;
+  title: string;
+  /** 范围标识：真值=涉及苏木乡镇 · mock=编号 */
+  scope: string;
+  channel: NoticeChannel;
+  publishAt: string;
+  live: boolean;
+}
+
+/** "2026-09-10T18:26:12.27Z" → "09-10 18:26"（按库内时间原样展示，不做时区换算） */
+function fmtStamp(iso: string): string {
+  return iso.length >= 16 ? `${iso.slice(5, 10)} ${iso.slice(11, 16)}` : iso;
+}
+
+function normType(t: string): NoticeType {
+  return (NOTICE_TYPE_META[t as NoticeType] ? t : '停水') as NoticeType;
+}
+
+function normChannel(c: string): NoticeChannel {
+  return (CHANNEL_META[c as NoticeChannel] ? c : '公众号') as NoticeChannel;
+}
+
+const noticeRows = computed<NoticeView[]>(() => {
+  const rows = liveNotices.value;
+  if (rows) {
+    return rows.map((n) => ({
+      id: n.id,
+      type: normType(n.type),
+      title: n.title,
+      scope: n.su_mu || '全域',
+      channel: normChannel(n.channel),
+      publishAt: fmtStamp(n.created),
+      live: true,
+    }));
+  }
+  return notices.map((n) => ({
+    id: n.id,
+    type: n.type,
+    title: n.title,
+    scope: n.id,
+    channel: n.channel,
+    publishAt: n.publishAt,
+    live: n.status === '已发布',
+  }));
+});
+
+const noticeCount = computed(() => liveNoticeTotal.value || noticeRows.value.length);
+
+/* ---------- 工单池（真三态 → 统一展示行；受理人后端暂无 → '—'） ---------- */
+interface TicketView {
+  id: string;
+  category: string;
+  location: string;
+  summary: string;
+  status: string;
+  handler: string;
+  elapsed: string;
+}
+
+/** 距受理/创建时长 → "Xh" / "X天Yh" */
+function elapsedLabel(created: string): string {
+  const t = new Date(created).getTime();
+  if (Number.isNaN(t)) return '—';
+  const h = Math.max(0, Math.round((Date.now() - t) / 3600_000));
+  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}天${h % 24}h`;
+}
+
+const ticketRows = computed<TicketView[]>(() => {
+  const rows = liveRepairs.value;
+  if (rows) {
+    return rows.map((r) => ({
+      id: r.ticket,
+      category: r.category,
+      location: r.location,
+      summary: r.description || r.category,
+      status: r.status,
+      handler: '—',
+      elapsed: elapsedLabel(r.created),
+    }));
+  }
+  return tickets.map((t) => ({
+    id: t.id,
+    category: t.type,
+    location: t.village,
+    summary: t.summary,
+    status: t.stage,
+    handler: t.handler,
+    elapsed: t.elapsed,
+  }));
+});
+
+/** 问题类型 → 色板（未知类别兜底青蓝） */
+function typeColor(c: string): string {
+  return TICKET_TYPE_COLORS[c] ?? 'var(--flood-teal)';
+}
+
+/* ---------- 进度管道：按工单池推导三阶段计数（口径与明细表一致） ---------- */
 const stageCards = computed(() => {
   const counts = STAGE_ORDER.map((stage) => ({
     stage,
     color: STAGE_COLORS[stage],
-    count: tickets.filter((t) => t.stage === stage).length,
+    count: ticketRows.value.filter((t) => t.status === stage).length,
   }));
   const max = Math.max(...counts.map((c) => c.count), 1);
   return counts.map((c) => ({ ...c, width: Math.round((c.count / max) * 100) }));
 });
 
-/** 在办 = 待受理 + 处理中 + 待回访 */
+/** 在办 = 待受理 + 处理中 */
 const openCount = computed(() =>
-  stageCards.value.slice(0, 3).reduce((s, c) => s + c.count, 0),
+  stageCards.value.slice(0, -1).reduce((s, c) => s + c.count, 0),
 );
 
-/* ---------- 近 7 日受理趋势 ---------- */
+/* ---------- 近 7 日受理趋势（暂无对应接口 · mock 口径保留） ---------- */
 const trendSeries = computed(() => [
   { name: '报修受理', data: weekTrend.repair },
   { name: '投诉受理', data: weekTrend.complaint },
 ]);
 
-/* ---------- 满意度：综合分 → 五星填充比例；分布 → 百分比 ---------- */
+/* ---------- 满意度：综合分 → 五星填充比例；分布 → 百分比（mock 保留） ---------- */
 const STAR_FILL_PCT = `${(satisfaction.overall / 5) * 100}%`;
 
 const starRows = computed(() =>
@@ -360,7 +504,7 @@ const starRows = computed(() =>
 /* ===== 中列：进度管道 ===== */
 .pipeline {
   display: grid;
-  grid-template-columns: 1fr 18px 1fr 18px 1fr 18px 1fr;
+  grid-template-columns: 1fr 18px 1fr 18px 1fr;
   align-items: stretch;
   gap: 6px;
 }

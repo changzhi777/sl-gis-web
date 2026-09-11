@@ -13,8 +13,8 @@ export interface AssessKpi {
   label: string;
   value: number;
   unit: string;
-  /** 同比变化幅度（%），口径全部向好 */
-  delta: number;
+  /** 同比变化幅度（%），口径全部向好；真值水合后无同比口径 → undefined 不渲染箭头 */
+  delta?: number;
   /** 小数位 */
   decimals: number;
 }
@@ -134,9 +134,6 @@ export const DIMENSIONS: AssessDimension[] = [
     ],
   },
 ];
-
-/** 指标总数（供面板副标题使用） */
-export const INDICATOR_COUNT = DIMENSIONS.reduce((s, d) => s + d.indicators.length, 0);
 
 /** 达标判定：high 方向 current >= target 达标；low 方向 current <= target 达标 */
 export function met(current: number, target: number, betterWhen: 'high' | 'low'): boolean {
@@ -273,3 +270,36 @@ export const RENOVATION_PROJECTS: RenovationProject[] = [
 
 /** 资金需求合计（万元） */
 export const RENOVATION_FUND_TOTAL = RENOVATION_PROJECTS.reduce((s, p) => s + p.fund, 0);
+
+/* ============ 真数据契约（GET /api/assessment/summary → data） ============ */
+
+/** /api/assessment/summary 响应（nano-api 从业务表实测聚合） */
+export interface AssessmentSummary {
+  kpi: {
+    /** 纳入考核工程数 */
+    projectTotal: number;
+    /** 工程正常运行率 % */
+    normalRate: number;
+    /** 设备在线率 % */
+    onlineRate: number;
+    /** 收费率 % */
+    collectionRate: number;
+    /** 巡检完成率 % */
+    patrolRate: number;
+    /** 累计告警数 */
+    alertTotal: number;
+  };
+  /** 维度名 → 得分（0-100；后端六维：供水保障/水质安全/设施运行/巡检维修/运营管理/服务监督） */
+  dims: Record<string, number>;
+  /** 苏木乡镇排名（得分降序） */
+  ranking: Array<{ name: string; score: number }>;
+}
+
+/** 维度得分行（雷达图 / 六维列表共用形态） */
+export interface DimScore {
+  name: string;
+  score: number;
+}
+
+/** 离线兜底：维度投影自 DIMENSIONS（含数据管理共 7 维，后端在线时被 6 维实测覆盖） */
+export const FALLBACK_DIM_SCORES: DimScore[] = DIMENSIONS.map(({ name, score }) => ({ name, score }));

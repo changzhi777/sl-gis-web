@@ -5,14 +5,15 @@
   · 左列：考核六维雷达（RadarChart）+ 六维得分列表
   · 中列：报表中心（日报/月报/年报 tab，指标名/本期值/上期值/同比/达标）+ 苏木乡镇排名（CSS 条，前三高亮）
   · 右列：成本分析（千吨水电耗/药耗/人工/维修 4 项 MicroBar）+ 年度更新改造项目库（优先级降序，≥80 红色）
-  · 数据源：页内确定性 mock（./mock.ts），无随机量
+  · 数据源（v8.3 真化）：KPI 条/六维雷达·得分/苏木排名 ← /api/assessment/summary 实测聚合
+    （规模化覆盖率后端无口径保留 mock 原值）；报表中心/成本分析/项目库保留页内确定性 mock；后端不可达回落 mock
 -->
 <template>
   <div class="screen">
     <!-- 顶部 KPI 条：考核核心六率 -->
       <div class="kpi-strip" role="group" aria-label="考核核心指标">
         <div
-          v-for="(k, i) in ASSESS_KPIS"
+          v-for="(k, i) in kpiStrip"
           :key="k.label"
           class="kpi-cell"
           :class="{ lead: i === 0 }"
@@ -40,9 +41,9 @@
               :height="252"
             />
           </Panel>
-          <Panel class="dim-panel" title="六维得分" :sub="`${INDICATOR_COUNT} 项指标 · 满分 100`">
+          <Panel class="dim-panel" title="六维得分" :sub="dimSub">
             <div class="dim-list">
-              <div v-for="d in DIMENSIONS" :key="d.key" class="dim-item">
+              <div v-for="d in liveDimensions" :key="d.name" class="dim-item">
                 <span class="dim-name">{{ d.name }}</span>
                 <div class="dim-track">
                   <i :style="{ width: d.score + '%', background: scoreColor(d.score) }"></i>
@@ -50,9 +51,6 @@
                 <b class="num dim-score" :style="{ color: scoreColor(d.score) }">
                   {{ d.score.toFixed(1) }}
                 </b>
-                <span class="dim-met" :class="{ full: metCount(d) === d.indicators.length }">
-                  {{ metCount(d) }}/{{ d.indicators.length }}
-                </span>
               </div>
             </div>
           </Panel>
@@ -107,7 +105,7 @@
           <Panel title="苏木乡镇考核排名" sub="综合得分 · 前三高亮 · 条长按 80-100 分归一">
             <div class="rank-list">
               <div
-                v-for="(t, i) in TOWNSHIP_RANKS"
+                v-for="(t, i) in liveRanks"
                 :key="t.name"
                 class="rank-item"
                 :class="{ top: i < 3 }"
@@ -174,15 +172,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import Panel from '@ui/Panel.vue';
 import KpiCard from '@ui/KpiCard.vue';
 import MicroBar from '@charts/MicroBar.vue';
 import RadarChart from './RadarChart.vue';
+import { apiFetch } from '@/composables/realtime';
 import {
   ASSESS_KPIS,
-  DIMENSIONS,
-  INDICATOR_COUNT,
   REPORTS,
   TOWNSHIP_RANKS,
   COST_ITEMS,
@@ -190,11 +187,47 @@ import {
   UNIT_WATER_COST,
   RENOVATION_PROJECTS,
   RENOVATION_FUND_TOTAL,
+  FALLBACK_DIM_SCORES,
   met,
   yoy,
   yoyGood,
 } from './mock';
-import type { AssessDimension, ReportKind, ReportRow } from './mock';
+import type { AssessKpi, AssessmentSummary, DimScore, ReportKind, ReportRow } from './mock';
+
+/* ---------- live 数据（mock 起步 → /api/assessment/summary 水合覆盖） ---------- */
+const liveSummary = ref<AssessmentSummary | null>(null);
+const liveDimensions = ref<DimScore[]>(FALLBACK_DIM_SCORES);
+const liveRanks = ref(TOWNSHIP_RANKS);
+
+async function hydrateSummary(): Promise<void> {
+  const data = await apiFetch<AssessmentSummary>('/api/assessment/summary');
+  if (!data?.kpi || !data.dims) return;
+  liveSummary.value = data;
+  const dims = Object.entries(data.dims).map(([name, score]) => ({ name, score: +score }));
+  if (dims.length) liveDimensions.value = dims;
+  if (data.ranking?.length) {
+    liveRanks.value = data.ranking.map((r) => ({ name: String(r.name), score: +r.score }));
+  }
+}
+
+onMounted(() => {
+  void hydrateSummary();
+});
+
+/* ---------- KPI 条：mock 形态起步；水合后五格换真值（不带同比箭头） ---------- */
+const kpiStrip = computed<AssessKpi[]>(() => {
+  const s = liveSummary.value;
+  if (!s) return ASSESS_KPIS;
+  const real = (base: AssessKpi, value: number): AssessKpi => ({ ...base, value, delta: undefined });
+  return [
+    ASSESS_KPIS[0], // 规模化供水覆盖率：后端无此口径，保留 mock 原值（含同比）
+    real(ASSESS_KPIS[1], s.kpi.normalRate),                      // 工程正常运行率
+    real(ASSESS_KPIS[2], s.kpi.onlineRate),                      // 设备在线率
+    real(ASSESS_KPIS[3], s.dims['水质安全'] ?? ASSESS_KPIS[3].value), // 水质合格率
+    real(ASSESS_KPIS[4], s.kpi.collectionRate),                  // 收费率
+    real(ASSESS_KPIS[5], s.dims['服务监督'] ?? ASSESS_KPIS[5].value), // 工单办结率
+  ];
+});
 
 /* ---------- 报表中心：日报 / 月报 / 年报 ---------- */
 const REPORT_TABS: ReportKind[] = ['日报', '月报', '年报'];
@@ -207,26 +240,27 @@ function yoyText(r: ReportRow): string {
   return (d >= 0 ? '+' : '') + d.toFixed(1) + '%';
 }
 
-/* ---------- 六维雷达 + 得分列表 ---------- */
-const radarIndicators = computed(() => DIMENSIONS.map((d) => ({ name: d.name, max: 100 })));
-const radarValues = computed(() => DIMENSIONS.map((d) => d.score));
+/* ---------- 六维雷达 + 得分列表（live：水合后为后端六维实测） ---------- */
+const radarIndicators = computed(() => liveDimensions.value.map((d) => ({ name: d.name, max: 100 })));
+const radarValues = computed(() => liveDimensions.value.map((d) => d.score));
 
-/** 旗县综合得分 = 六维得分均值 */
+/** 旗县综合得分 = 各维得分均值 */
 const overallScore = computed(() => {
-  const s = DIMENSIONS.reduce((sum, d) => sum + d.score, 0) / DIMENSIONS.length;
-  return +s.toFixed(1);
+  const dims = liveDimensions.value;
+  if (!dims.length) return 0;
+  return +(dims.reduce((sum, d) => sum + d.score, 0) / dims.length).toFixed(1);
 });
+
+/** 得分列表副标题：水合后带纳入考核工程数 */
+const dimSub = computed(() =>
+  liveSummary.value ? `纳入工程 ${liveSummary.value.kpi.projectTotal} 座 · 满分 100` : '满分 100',
+);
 
 /** 得分着色：≥90 青绿 / ≥86 主蓝 / 其余草原琥珀 */
 function scoreColor(score: number): string {
   if (score >= 90) return 'var(--spring-green)';
   if (score >= 86) return 'var(--flood-teal)';
   return 'var(--steppe-amber)';
-}
-
-/** 该维度达标指标数 */
-function metCount(d: AssessDimension): number {
-  return d.indicators.filter((i) => met(i.actual, i.target, i.betterWhen)).length;
 }
 
 /* ---------- 苏木乡镇排名：条长按 80-100 分归一 ---------- */

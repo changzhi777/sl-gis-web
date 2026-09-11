@@ -214,3 +214,40 @@ export const extApis: ExtApi[] = [
   { id: 'api-finance', name: '旗财政补贴发放系统', status: '未接入', lastSync: '—' },
   { id: 'api-superior', name: '上级农村供水信息平台', status: '未接入', lastSync: '—' },
 ];
+
+/* ============ 真数据契约（mini-rbac 管理端点 → data.items 行形态） ============ */
+
+/** GET /api/user → items 行（sys_user 口径） */
+export interface ApiUserRow {
+  id: number;
+  username: string;
+  nickname: string | null;
+}
+
+/** GET /api/role → items 行 */
+export interface ApiRoleRow {
+  id: number;
+  name: string;
+  remark: string | null;
+}
+
+/** GET /api/menu → items 行（type 1 页面 / 3 接口，菜单即权限） */
+export interface ApiMenuRow {
+  id: number;
+  name: string;
+  path: string | null;
+  type: 1 | 2 | 3;
+  pid: number | null;
+  api: string | null;
+  method: string | null;
+}
+
+/** GET /api/logs → items 行（created 为 ISO 时间戳） */
+export interface ApiLogRow {
+  user: string;
+  action: string;
+  target: string | null;
+  ip: string;
+  sensitive: boolean;
+  created: string;
+}

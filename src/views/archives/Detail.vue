@@ -1,8 +1,9 @@
 <!--
   archives/Detail.vue — 单工程详情页（需求 §三 一工程一档案）
-  · route.params.id → mockData.projects 查找；未找到给出空态 + 返回
-  · 左：工程基本信息卡（含实时关键值）；右：设备清单 / 维修记录 / 水质检测记录
-  · 三张表均按工程 id 种子确定性生成（1 期 mock 口径，刷新不变）
+  · 数据源（v8.3 真化）：route.params.id 即工程编码 → /api/projects/{code} 水合；
+    后端无此 id 时回落 mockData.projects 查找；均未命中给出空态 + 返回
+  · 左：工程基本信息卡；右：设备清单 / 维修记录 / 水质检测记录
+  · 三张表均按工程 id 种子确定性生成（1 期 mock 口径，刷新不变，挂真工程编码）
 -->
 <template>
   <div class="screen">
@@ -174,10 +175,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Panel from '@ui/Panel.vue';
 import { mockData } from '@mock/index';
+import { apiFetch } from '@/composables/realtime';
+import { mapProject } from '@shared/backend';
 import { STATUS_COLOR, type Grade, type Project, type Status } from '@shared/types';
 
 /* ---------- 常量 ---------- */
@@ -230,7 +233,7 @@ function hashStr(s: string): number {
 
 const p2 = (n: number) => String(n).padStart(2, '0');
 
-/* ---------- 路由工程查找 ---------- */
+/* ---------- 路由工程查找：mock 起步 → /api/projects/{code} 真工程水合 ---------- */
 const route = useRoute();
 const router = useRouter();
 
@@ -239,9 +242,20 @@ const pid = computed(() => {
   return Array.isArray(v) ? String(v[0] ?? '') : String(v ?? '');
 });
 
-const project = computed<Project | null>(
-  () => mockData.projects.find((p) => p.id === pid.value) ?? null,
+const project = ref<Project | null>(
+  mockData.projects.find((p) => p.id === pid.value) ?? null,
 );
+
+/** 后端真工程水合：命中 code 即覆盖；失败/无此 id 静默保留 mock 回落 */
+async function hydrateProject(): Promise<void> {
+  const row = await apiFetch<Record<string, unknown>>(`/api/projects/${encodeURIComponent(pid.value)}`);
+  if (row && String(row.code) === pid.value) project.value = mapProject(row);
+}
+
+watch(pid, () => {
+  project.value = mockData.projects.find((p) => p.id === pid.value) ?? null;
+  void hydrateProject();
+}, { immediate: true });
 
 /* ---------- 基本信息（年份/规模/人口：与 List.vue 同一派生口径） ---------- */
 const builtYear = computed(() => {

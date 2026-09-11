@@ -76,8 +76,8 @@ export interface LeakRow {
   status: LeakStatus;
 }
 
-/** 缴费渠道 */
-export type PayChannel = '微信' | '营业厅' | '上门';
+/** 缴费渠道（'已缴' 为真数据流水统一兜底标签 — 后端流水无渠道字段） */
+export type PayChannel = '微信' | '营业厅' | '上门' | '已缴';
 
 /** 欠费提醒行 */
 export interface ArrearRow {
@@ -101,6 +101,49 @@ export interface PaymentRow {
   /** 金额（元） */
   amount: number;
   channel: PayChannel;
+}
+
+/* ---------- /api/billing/overview 真数据契约（nano-api router/billing.py） ---------- */
+
+/** 月度收缴口径 */
+export interface BillingMonthly {
+  /** 账期 "2026-03" */
+  month: string;
+  /** 应缴（元） */
+  due: number;
+  /** 已缴（元） */
+  paid: number;
+  /** 收缴率（%） */
+  rate: number;
+}
+
+/** 欠费户行（按欠费额降序前 12） */
+export interface BillingArrearsItem {
+  /** 户号 SL26E0058 */
+  account: string;
+  owner: string;
+  /** 欠费合计（元） */
+  amount: number;
+  /** 欠费期数 */
+  months: number;
+}
+
+/** 近期缴费流水行 */
+export interface BillingPayment {
+  account: string;
+  owner: string;
+  month: string;
+  amount: number;
+}
+
+/** GET /api/billing/overview 响应 data */
+export interface BillingOverview {
+  households: number;
+  composition: Record<string, number>;
+  monthly: BillingMonthly[];
+  collectionRate: number;
+  arrears: { count: number; amount: number; items: BillingArrearsItem[] };
+  recentPayments: BillingPayment[];
 }
 
 /* ---------- KPI（口径锚点） ---------- */

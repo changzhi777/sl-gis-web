@@ -1,9 +1,11 @@
 <!--
   system/Dashboard.vue — 系统管理大屏主视图（需求 §十二 组织权限与系统管理）
-  页内确定性 mock 来自 ./mock.ts（菜单即权限 · mini-rbac 口径，1 期无后端）
-  · 顶部 KPI 条：组织机构数 / 角色数 / 账户总数 / 今日操作 / 接口异常数 / 权限复核到期数
+  页内确定性 mock 来自 ./mock.ts（组织树 / 外部接口保留）
+  · 数据源（v8.3 真化）：用户表 ← /api/user · 角色列表 ← /api/role · 权限矩阵 ← /api/menu（页面+接口为行）
+    · 操作日志 ← /api/logs（sensitive 红标）· KPI 计数用真值；后端不可达回落 mock
+  · 顶部 KPI 条：组织机构数 / 角色数 / 账户总数 / 操作日志数 / 接口异常数 / 权限复核到期数
   · 左列：组织架构树（旗水利局 → 统管公司 → 7 苏木乡镇站 → 嘎查村，点选高亮）+ 角色权限（点选联动矩阵列高亮）
-  · 中列：用户管理表（复核按钮仅样式）+ 菜单权限矩阵（行=菜单 × 列=角色，✓ 青色）
+  · 中列：用户管理表（复核按钮仅样式）+ 菜单权限矩阵（行=页面/接口 × 列=角色，✓ 青色）
   · 右列：操作日志（敏感操作红标「敏感」）+ 外部接口状态（正常绿 / 异常红 / 未接入灰）
 -->
 <template>
@@ -53,13 +55,13 @@
                 class="role-bar"
                 :class="{ 'is-active': r.id === selectedRoleId }"
                 :label="r.name"
-                :value="r.userCount"
-                unit="人"
+                :value="r.menus"
+                unit="项"
                 :decimals="0"
-                :max="maxRoleUsers"
+                :max="maxRoleMenus"
                 :color="ROLE_COLOR[i % ROLE_COLOR.length]"
               />
-              <div class="role-sub">级别徽标 · 点击角色高亮矩阵列</div>
+              <div class="role-sub">条形 = 授权菜单数 · 点击角色高亮矩阵列</div>
               <div class="role-chips">
                 <button
                   v-for="(r, i) in roles"
@@ -71,7 +73,7 @@
                   @click="toggleRole(r.id)"
                 >
                   {{ r.name }}
-                  <b>{{ r.level }}</b>
+                  <b>{{ r.badge }}</b>
                 </button>
               </div>
             </div>
@@ -80,7 +82,7 @@
 
         <!-- ============ 中列 ============ -->
         <div class="col">
-          <Panel title="用户管理" :sub="`平台账户 ${accountTotal} 个 · 演示 ${users.length} 条`" class="f12" hero>
+          <Panel title="用户管理" :sub="`平台账户 ${userTotal} 个 · 展示 ${users.length} 条`" class="f12" hero>
             <div class="tbl-wrap">
               <table class="tbl users-tbl">
                 <thead>
@@ -89,7 +91,7 @@
                     <th>姓名</th>
                     <th>角色</th>
                     <th>所属组织</th>
-                    <th>最后登录</th>
+                    <th>最近活跃</th>
                     <th>状态</th>
                     <th class="ta-r">操作</th>
                   </tr>
@@ -118,7 +120,7 @@
             </div>
           </Panel>
 
-          <Panel title="菜单权限矩阵" sub="行 = 菜单模块 · 列 = 角色 · ✓ 已授权（最小权限）" class="f10">
+          <Panel title="菜单权限矩阵" sub="行 = 页面/接口 · 列 = 角色 · ✓ 已授权（最小权限）" class="f10">
             <div class="tbl-wrap">
               <table class="tbl perm-tbl">
                 <thead>
@@ -132,8 +134,8 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="row in permMatrix" :key="row.menu">
-                    <td class="menu-col">{{ row.menu }}</td>
+                  <tr v-for="row in permRows" :key="row.menu">
+                    <td class="menu-col" :title="row.title">{{ row.menu }}</td>
                     <td
                       v-for="(ok, ci) in row.grants"
                       :key="roles[ci].id"
@@ -151,20 +153,17 @@
 
         <!-- ============ 右列 ============ -->
         <div class="col">
-          <Panel title="操作日志" :sub="`今日 ${TODAY_OPS} 条 · 留痕追溯`" variant="alarm" class="f12" hero>
+          <Panel title="操作日志" :sub="`最近 ${opsTotal} 条 · 留痕追溯`" variant="alarm" class="f12" hero>
             <div class="logs">
               <div
                 v-for="l in opLogs"
                 :key="l.id"
                 class="log-row"
-                :class="{ 'log-fail': l.result === '失败' }"
               >
                 <div class="log-l1">
                   <span class="num log-time">{{ l.time }}</span>
                   <span class="log-user">{{ l.user }}</span>
-                  <span class="log-role dim">{{ l.role }}</span>
                   <b v-if="l.sensitive" class="sen-tag">敏感</b>
-                  <b v-if="l.result === '失败'" class="fail-tag">失败</b>
                 </div>
                 <div class="log-l2">
                   {{ l.action }} · {{ l.target }}
@@ -190,20 +189,45 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import KpiCard from '@ui/KpiCard.vue';
 import Panel from '@ui/Panel.vue';
 import MicroBar from '@charts/MicroBar.vue';
+import { apiFetch } from '@/composables/realtime';
 import {
   orgTree,
-  roles,
-  users,
-  permMatrix,
-  opLogs,
   extApis,
+  roles as mockRoles,
+  users as mockUsers,
+  permMatrix as mockPermMatrix,
+  opLogs as mockOpLogs,
   TODAY_OPS,
 } from './mock';
-import type { OrgNode } from './mock';
+import type {
+  ApiLogRow,
+  ApiMenuRow,
+  ApiRoleRow,
+  ApiUserRow,
+  OrgNode,
+  SysUser,
+} from './mock';
+
+/* ---------- live 数据（mock 起步 → /api/* 水合覆盖；组织树/外部接口保留 mock） ---------- */
+/** 角色绑定与菜单授权需成对水合，保证矩阵 行/列 始终同源一致 */
+const liveRbac = ref<{ roles: ApiRoleRow[]; menus: ApiMenuRow[] } | null>(null);
+const rawUsers = ref<ApiUserRow[] | null>(null);
+const rawLogs = ref<ApiLogRow[] | null>(null);
+/** 账户总数（/api/user total 真值优先） */
+const userTotal = ref<number>(mockUsers.length);
+
+const p2 = (n: number): string => String(n).padStart(2, '0');
+
+/** ISO → MM-DD HH:mm（与 mock 时间口径一致） */
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
 
 /* ---------- 组织树：拍平 + 缩进层级（末级人数 = 直挂口径，上级 = 子树合计） ---------- */
 interface FlatOrg {
@@ -234,7 +258,36 @@ const flatOrgs: FlatOrg[] = flatten(orgTree);
 /** 组织树点选高亮（默认旗水利局） */
 const selectedOrgId = ref<string>(orgTree[0].id);
 
-/* ---------- 角色：用户数条 + 级别徽标，点选联动矩阵列 ---------- */
+/* ---------- 角色（live：/api/role；条形 = 授权菜单数，菜单即权限口径） ---------- */
+interface RoleView {
+  id: string;
+  name: string;
+  /** 徽标文案：mock = 权限级别 / 真数据 = 角色备注 */
+  badge: string;
+  /** 授权菜单数 */
+  menus: number;
+}
+
+const roles = computed<RoleView[]>(() => {
+  if (!liveRbac.value) {
+    // mock 兜底：授权菜单数取权限矩阵各列勾选数
+    return mockRoles.map((r, i) => ({
+      id: r.id,
+      name: r.name,
+      badge: r.level,
+      menus: mockPermMatrix.filter((row) => row.grants[i]).length,
+    }));
+  }
+  // 真数据：角色-菜单绑定未开放查询，当前种子口径为全量勾选
+  const granted = permRows.value.length;
+  return liveRbac.value.roles.map((r) => ({
+    id: String(r.id),
+    name: r.name,
+    badge: r.remark ?? '—',
+    menus: granted,
+  }));
+});
+
 const ROLE_COLOR: string[] = [
   'var(--chart-1)',
   'var(--chart-2)',
@@ -244,7 +297,7 @@ const ROLE_COLOR: string[] = [
   'var(--chart-5)',
   'var(--text-dim)',
 ];
-const maxRoleUsers: number = Math.max(...roles.map((r) => r.userCount));
+const maxRoleMenus = computed(() => Math.max(1, ...roles.value.map((r) => r.menus)));
 
 /** 当前高亮角色（'' = 无）；再点一次取消 */
 const selectedRoleId = ref<string>('');
@@ -253,19 +306,115 @@ function toggleRole(id: string): void {
   selectedRoleId.value = selectedRoleId.value === id ? '' : id;
 }
 
-/* ---------- KPI（静态口径，来自 mock 推导） ---------- */
-const accountTotal: number = roles.reduce((s, r) => s + r.userCount, 0);
-const apiAbnormal: number = extApis.filter((a) => a.status === '异常').length;
-const reviewDue: number = users.filter((u) => u.reviewDue).length;
+/* ---------- 权限矩阵（live：/api/menu 页面 type=1 + 接口 type=3 为行） ---------- */
+interface PermRowView {
+  menu: string;
+  /** 悬浮提示：页面 path 或 接口 METHOD api */
+  title: string;
+  /** 与 roles 顺序一一对应 */
+  grants: boolean[];
+}
 
-const stripKpis = [
+const permRows = computed<PermRowView[]>(() => {
+  if (!liveRbac.value) {
+    return mockPermMatrix.map((r) => ({ menu: r.menu, title: r.menu, grants: r.grants }));
+  }
+  const nRoles = liveRbac.value.roles.length;
+  return liveRbac.value.menus
+    .filter((m) => m.type === 1 || m.type === 3)
+    .map((m) => ({
+      menu: m.name,
+      title: m.type === 1 ? (m.path ?? '') : `${m.method ?? ''} ${m.api ?? ''}`.trim(),
+      grants: Array.from({ length: nRoles }, () => true),
+    }));
+});
+
+/* ---------- 用户（live：/api/user；最近活跃从操作日志推导） ---------- */
+const users = computed<SysUser[]>(() => {
+  if (!rawUsers.value) return mockUsers;
+  // 单角色部署口径：全部账户绑定该角色（角色-用户绑定未开放查询）
+  const singleRole = roles.value.length === 1 ? roles.value[0].name : '—';
+  const logs = rawLogs.value ?? [];
+  return rawUsers.value.map((u) => {
+    // 后端日志按 created 降序，首个匹配即最近一条
+    const last = logs.find((l) => l.user === u.username);
+    return {
+      id: String(u.id),
+      account: u.username,
+      name: u.nickname || u.username,
+      role: singleRole,
+      org: '—',
+      lastLogin: last ? fmtTime(last.created) : '—',
+      enabled: true,
+      reviewDue: false,
+    };
+  });
+});
+
+/* ---------- 操作日志（live：/api/logs，敏感红标） ---------- */
+interface LogView {
+  id: string;
+  time: string;
+  user: string;
+  action: string;
+  target: string;
+  ip: string;
+  sensitive: boolean;
+}
+
+const opLogs = computed<LogView[]>(() => {
+  if (!rawLogs.value) {
+    return mockOpLogs.map((l) => ({
+      id: l.id, time: l.time, user: l.user, action: l.action,
+      target: l.target, ip: l.ip, sensitive: l.sensitive,
+    }));
+  }
+  return rawLogs.value.map((l, i) => ({
+    id: `L-${i + 1}`,
+    time: fmtTime(l.created),
+    user: l.user,
+    action: l.action,
+    target: l.target ?? '—',
+    ip: l.ip,
+    sensitive: !!l.sensitive,
+  }));
+});
+
+/** 操作日志总数（真值优先；/api/logs total = 返回条数上限 50） */
+const opsTotal = computed(() => (rawLogs.value ? rawLogs.value.length : TODAY_OPS));
+
+/* ---------- KPI（真值优先：角色/账户/日志 ← 管理端点；组织/接口 ← mock） ---------- */
+const apiAbnormal: number = extApis.filter((a) => a.status === '异常').length;
+const reviewDue = computed(() => users.value.filter((u) => u.reviewDue).length);
+
+const stripKpis = computed(() => [
   { value: flatOrgs.length, unit: '个', label: '组织机构数', alarm: false },
-  { value: roles.length, unit: '个', label: '角色数', alarm: false },
-  { value: accountTotal, unit: '个', label: '账户总数', alarm: false },
-  { value: TODAY_OPS, unit: '次', label: '今日操作', alarm: false },
+  { value: roles.value.length, unit: '个', label: '角色数', alarm: false },
+  { value: userTotal.value, unit: '个', label: '账户总数', alarm: false },
+  { value: opsTotal.value, unit: '次', label: '操作日志数', alarm: false },
   { value: apiAbnormal, unit: '路', label: '接口异常数', alarm: true },
-  { value: reviewDue, unit: '个', label: '权限复核到期数', alarm: true },
-];
+  { value: reviewDue.value, unit: '个', label: '权限复核到期数', alarm: true },
+]);
+
+/* ---------- 生命周期：水合（失败静默回落 mock） ---------- */
+onMounted(() => {
+  void (async () => {
+    const [userRes, roleRes, menuRes, logRes] = await Promise.all([
+      apiFetch<{ total: number; items: ApiUserRow[] }>('/api/user?limit=50'),
+      apiFetch<{ total: number; items: ApiRoleRow[] }>('/api/role'),
+      apiFetch<{ total: number; items: ApiMenuRow[] }>('/api/menu'),
+      apiFetch<{ total: number; items: ApiLogRow[] }>('/api/logs?limit=50'),
+    ]);
+    if (userRes?.items?.length) {
+      rawUsers.value = userRes.items;
+      userTotal.value = userRes.total ?? userRes.items.length;
+    }
+    if (roleRes?.items?.length && menuRes?.items?.length) {
+      liveRbac.value = { roles: roleRes.items, menus: menuRes.items };
+    }
+    if (logRes?.items?.length) rawLogs.value = logRes.items;
+  })();
+});
 
 /** 接口状态 → 圆点/文案色 */
 const apiDot = { 正常: 'ok', 异常: 'bad', 未接入: 'na' } as const;

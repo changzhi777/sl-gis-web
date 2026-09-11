@@ -1,7 +1,7 @@
 <!--
   archives/List.vue — 工程资产档案列表（需求 §三 工程与资产档案）
-  · mockData.projects 全量 1888 条（A 12 / B 8 / C 26 / D 1842），每页 20 条
-  · 筛选：名称/编号关键字 + 类型 A-D + 苏木乡镇
+  · 数据源（v8.3 真化）：/api/projects 真工程水合覆盖；失败静默保留 mock 1888 条兜底
+  · 筛选：名称/编号关键字 + 类型 A-D + 苏木乡镇（前端过滤）
   · 建成年份/设计规模/供水人口：按工程 id 种子确定性生成（1 期 mock 口径）
   · 行点击 / 操作列 → /archives/:id 详情（archive-detail 路由）
 -->
@@ -110,9 +110,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { mockData } from '@mock/index';
+import { apiFetch } from '@/composables/realtime';
+import { mapProject, unpackItems } from '@shared/backend';
 import { STATUS_COLOR, type Grade, type Project, type Status } from '@shared/types';
 
 /* ---------- 常量 ---------- */
@@ -196,10 +198,13 @@ const grade = ref<'' | Grade>('');
 const suMu = ref('');
 const page = ref(1);
 
-const suMus = computed(() => [...new Set(mockData.projects.map((p) => p.suMu))]);
+/* ---------- 数据源：mock 起步 → /api/projects 水合覆盖 ---------- */
+const liveProjects = ref<Project[]>(mockData.projects);
+
+const suMus = computed(() => [...new Set(liveProjects.value.map((p) => p.suMu))]);
 
 const filtered = computed(() =>
-  mockData.projects.filter((p) => {
+  liveProjects.value.filter((p) => {
     const kw = keyword.value.toLowerCase();
     const hitKw =
       !kw || p.name.toLowerCase().includes(kw) || p.id.toLowerCase().includes(kw);
@@ -211,7 +216,7 @@ const filtered = computed(() =>
 
 const gradeCount = computed(() => {
   const cnt: Record<Grade, number> = { A: 0, B: 0, C: 0, D: 0 };
-  for (const p of mockData.projects) cnt[p.grade] += 1;
+  for (const p of liveProjects.value) cnt[p.grade] += 1;
   return cnt;
 });
 
@@ -253,6 +258,12 @@ function goPage(pg: number | '…'): void {
 function goDetail(id: string): void {
   router.push(`/archives/${id}`);
 }
+
+/** 后端真工程水合（失败静默保留 mock 兜底） */
+onMounted(async () => {
+  const items = unpackItems(await apiFetch('/api/projects'));
+  if (items?.length) liveProjects.value = items.map(mapProject);
+});
 </script>
 
 <style scoped>

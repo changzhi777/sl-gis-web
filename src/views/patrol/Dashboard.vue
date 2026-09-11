@@ -5,7 +5,9 @@
   · 左列：今日巡检计划 + 本周巡检完成；中列：工单看板（待接单/处理中/已完成）
   · 右列：巡检覆盖率（按苏木乡镇）+ 工单类型分布
   · 底部带：近7日巡检·办结趋势（TrendLine）+ 维修人员工作量（MicroBar）
-  · 工单 mock：mockData.alerts 映射（未签收→待接单 / 已派单·已签收→处理中）+ 现场确定性衍生
+  · 数据源（v8.3 真化）：工单列表 ← /api/patrols（四态 待执行/进行中/已完成/逾期）；
+    四态计数/完成率/类型分布 ← /api/patrols/stats；趋势/计划/覆盖率保留确定性形态（基数锚定真完成率）；
+    后端不可达回落 mock（告警映射 + 现场确定性衍生）
 -->
 <template>
   <div class="screen">
@@ -154,12 +156,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import Panel from '@ui/Panel.vue';
 import KpiCard from '@ui/KpiCard.vue';
 import TrendLine from '@charts/TrendLine.vue';
 import MicroBar from '@charts/MicroBar.vue';
 import { mockData } from '@mock/index';
+import { apiFetch } from '@/composables/realtime';
+import { unpackItems } from '@shared/backend';
 import { SUMU_CENTERS } from '@shared/sumu-anchors';
 import type { EmergencyEvent } from '@shared/types';
 
@@ -175,19 +179,44 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/* ---------- 顶部 KPI ---------- */
-const kpi = {
-  patrolRate: 92.4,                              // 本月巡检完成率（行业基准 90+）
-  closeRate: mockData.cockpit.ops.workOrderCloseRate, // 87.5
-  avgFixHours: 4.2,
-  repeatRate: 6.8,
-};
+function hashStr(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
 
-/* ---------- 工单 mock：告警映射 + 现场确定性衍生 ---------- */
-const ORDER_TYPES = ['管道抢修', '水泵维修', '水质处置', '设备更换', '冻堵处理', '例行保养'] as const;
-type OrderType = (typeof ORDER_TYPES)[number];
+/* ---------- live 统计（mock 起步 → /api/patrols/stats 水合覆盖） ---------- */
+interface PatrolStats {
+  total: number;
+  byStatus: Record<string, number>;
+  byType: Record<string, number>;
+  completionRate: number;
+}
+const liveStats = ref<PatrolStats | null>(null);
 
-const TYPE_COLOR: Record<OrderType, string> = {
+/* ---------- 顶部 KPI（完成率走真值；均值/重复率暂无后端口径保留基准） ---------- */
+const kpi = computed(() => {
+  const s = liveStats.value;
+  return {
+    patrolRate: s?.completionRate ?? 92.4,                                         // 本月巡检完成率
+    closeRate: s?.completionRate ?? mockData.cockpit.ops.workOrderCloseRate,      // 巡检工单办结率（同口径）
+    avgFixHours: 4.2,
+    repeatRate: 6.8,
+  };
+});
+
+/* ---------- 工单口径：后端四态三类（mock 兜底工单沿用旧类型色） ---------- */
+const PATROL_TYPES = ['日常巡检', '专项检查', '养护维修'] as const;
+const PATROL_STATES = ['待执行', '进行中', '已完成', '逾期'] as const;
+type OrderState = (typeof PATROL_STATES)[number];
+
+const TYPE_COLOR: Record<string, string> = {
+  日常巡检: 'var(--spring-green)',
+  专项检查: 'var(--steppe-amber)',
+  养护维修: 'var(--flood-teal)',
   管道抢修: 'var(--status-alarm)',
   水泵维修: 'var(--steppe-amber)',
   水质处置: '#7EE081',
@@ -196,32 +225,24 @@ const TYPE_COLOR: Record<OrderType, string> = {
   例行保养: 'var(--spring-green)',
 };
 
-type OrderState = '待接单' | '处理中' | '已完成';
 const STATE_COLOR: Record<OrderState, string> = {
-  待接单: 'var(--steppe-amber)',
-  处理中: 'var(--flood-teal)',
+  待执行: 'var(--steppe-amber)',
+  进行中: 'var(--flood-teal)',
   已完成: 'var(--spring-green)',
+  逾期: 'var(--status-alarm)',
 };
 
-function alertType(t: EmergencyEvent['type']): OrderType {
-  if (t === 'burst') return '管道抢修';
-  if (t === 'equipment') return '水泵维修';
-  if (t === 'water_quality') return '水质处置';
-  if (t === 'frost') return '冻堵处理';
-  return '设备更换';
-}
-
 function alertState(s: EmergencyEvent['status']): OrderState {
-  if (s === '未签收') return '待接单';
+  if (s === '未签收') return '待执行';
   if (s === '已销号') return '已完成';
-  return '处理中';
+  return '进行中';
 }
 
 const p2 = (n: number) => String(n).padStart(2, '0');
 
 interface WorkOrder {
   id: string;
-  type: OrderType;
+  type: string;
   project: string;
   desc: string;
   time: string;
@@ -242,6 +263,9 @@ const SYNTH_DESCS = [
 
 const SYNTH_PERSONS = ['巴特尔', '朝鲁', '哈斯', '乌力吉', '苏乙拉', '其木德'];
 
+const MOCK_ORDER_TYPES = ['管道抢修', '水泵维修', '水质处置', '设备更换', '冻堵处理', '例行保养'] as const;
+
+/** mock 兜底工单：告警映射 + 现场确定性衍生（水合失败时保留形态） */
 function buildOrders(): WorkOrder[] {
   const list: WorkOrder[] = [];
 
@@ -249,7 +273,7 @@ function buildOrders(): WorkOrder[] {
   mockData.alerts.forEach((a) => {
     list.push({
       id: `WO-${a.id.replace('ALERT-', '')}`,
-      type: alertType(a.type),
+      type: MOCK_ORDER_TYPES[hashStr(a.id) % MOCK_ORDER_TYPES.length],
       project: a.location,
       desc: a.description,
       time: hhmm(a.time),
@@ -264,15 +288,15 @@ function buildOrders(): WorkOrder[] {
   const baseMinutes = 8 * 60; // 08:00 起往回排
   for (let i = 0; i < 10; i++) {
     const proj = main[Math.floor(rand() * main.length)];
-    const state: OrderState = i < 2 ? '待接单' : i < 6 ? '处理中' : '已完成';
+    const state: OrderState = i < 2 ? '待执行' : i < 6 ? '进行中' : '已完成';
     const minutes = baseMinutes + i * 27 + Math.floor(rand() * 20);
     list.push({
       id: `WO-${String(100 + i)}`,
-      type: ORDER_TYPES[Math.floor(rand() * ORDER_TYPES.length)],
+      type: MOCK_ORDER_TYPES[Math.floor(rand() * MOCK_ORDER_TYPES.length)],
       project: proj.name,
       desc: SYNTH_DESCS[Math.floor(rand() * SYNTH_DESCS.length)],
       time: `${p2(Math.floor(minutes / 60) % 24)}:${p2(minutes % 60)}`,
-      person: state === '待接单' ? '待派单' : SYNTH_PERSONS[Math.floor(rand() * SYNTH_PERSONS.length)],
+      person: state === '待执行' ? '待派单' : SYNTH_PERSONS[Math.floor(rand() * SYNTH_PERSONS.length)],
       state,
     });
   }
@@ -286,24 +310,59 @@ function hhmm(iso: string): string {
   return `${p2(d.getHours())}:${p2(d.getMinutes())}`;
 }
 
-const orders = buildOrders();
-const doneOrders = orders.filter((o) => o.state === '已完成');
+/* ---------- live 工单（mock 起步 → /api/patrols 水合覆盖） ---------- */
+const orders = ref<WorkOrder[]>(buildOrders());
+const doneOrders = computed(() => orders.value.filter((o) => o.state === '已完成'));
 
-const board = computed(() => {
-  const stateOrder: OrderState[] = ['待接单', '处理中', '已完成'];
-  return stateOrder.map((state) => ({
-    state,
-    items: orders.filter((o) => o.state === state),
-  }));
+/** 真工单映射：code→id · 类型/状态归一 · 工程名查 mock 编码表 · 描述按 code 确定性衍生 */
+function mapPatrol(r: Record<string, unknown>): WorkOrder {
+  const code = String(r.code);
+  const proj = mockData.projects.find((p) => p.id === String(r.project_code));
+  const type = (PATROL_TYPES as readonly string[]).includes(String(r.type)) ? String(r.type) : PATROL_TYPES[0];
+  const status = (PATROL_STATES as readonly string[]).includes(String(r.status)) ? String(r.status) : PATROL_STATES[0];
+  return {
+    id: code,
+    type,
+    project: proj?.name ?? String(r.project_code),
+    desc: SYNTH_DESCS[hashStr(code) % SYNTH_DESCS.length],
+    time: String(r.plan_date ?? ''),
+    person: String(r.inspector ?? ''),
+    state: status as OrderState,
+  };
+}
+
+async function hydratePatrols(): Promise<void> {
+  const items = unpackItems(await apiFetch('/api/patrols'));
+  if (!items?.length) return;
+  orders.value = items.map(mapPatrol).sort((a, b) => (a.time < b.time ? 1 : -1));
+}
+
+async function hydrateStats(): Promise<void> {
+  const s = await apiFetch<PatrolStats>('/api/patrols/stats');
+  if (s && typeof s.total === 'number' && s.total > 0) liveStats.value = s;
+}
+
+onMounted(() => {
+  void hydratePatrols();
+  void hydrateStats();
 });
 
-/* ---------- 工单类型分布 ---------- */
-const typeDist = computed(() =>
-  ORDER_TYPES.map((type) => ({
-    type,
-    count: orders.filter((o) => o.type === type).length,
-  })).filter((t) => t.count > 0),
+const board = computed(() =>
+  PATROL_STATES.map((state) => ({
+    state,
+    items: orders.value.filter((o) => o.state === state),
+  })),
 );
+
+/* ---------- 工单类型分布（真值 byType；兜底按当前工单聚合） ---------- */
+const typeDist = computed(() => {
+  if (liveStats.value) {
+    return Object.entries(liveStats.value.byType).map(([type, count]) => ({ type, count }));
+  }
+  const count = new Map<string, number>();
+  for (const o of orders.value) count.set(o.type, (count.get(o.type) ?? 0) + 1);
+  return [...count.entries()].map(([type, c]) => ({ type, count: c }));
+});
 const maxTypeCount = computed(() => Math.max(1, ...typeDist.value.map((t) => t.count)));
 
 /* ---------- 今日巡检计划（按苏木线路） ---------- */
@@ -330,23 +389,29 @@ const plans = computed(() => {
   });
 });
 
-/* ---------- 本周巡检完成 / 近7日趋势 ---------- */
+/* ---------- 本周巡检完成 / 近7日趋势（形态保留，基数锚定真完成率） ---------- */
 const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
+/** 真完成率 ±8pct 确定性波形（40-100 收敛） */
+function waveRate(seed: number, base: number, dayIdx: number): number {
+  const rand = mulberry32(seed + dayIdx)();
+  return Math.round(Math.min(100, Math.max(40, base + (rand - 0.5) * 16)));
+}
+
 const weekRates = computed(() => {
-  const rand = mulberry32(7701);
+  const base = liveStats.value?.completionRate ?? 92;
   return DAY_NAMES.map((name, i) => ({
     name,
-    rate: i === 6 ? 0 : Math.round(78 + rand() * 22),
+    rate: i === 6 ? 0 : waveRate(7701 + i, base, i),
   }));
 });
 
 const dayLabels = DAY_NAMES.map((d) => d.replace('周', ''));
 
 const trendSeries = computed(() => {
-  const rand = mulberry32(7702);
-  const patrol = DAY_NAMES.map((_, i) => (i === 6 ? 0 : Math.round(78 + rand() * 22)));
-  const close = DAY_NAMES.map((_, i) => (i === 6 ? 0 : Math.round(74 + rand() * 24)));
+  const base = liveStats.value?.completionRate ?? 92;
+  const patrol = DAY_NAMES.map((_, i) => (i === 6 ? 0 : waveRate(7702 + i, base, i)));
+  const close = DAY_NAMES.map((_, i) => (i === 6 ? 0 : waveRate(8802 + i, base, i)));
   return [
     { name: '巡检完成率', data: patrol },
     { name: '工单办结率', data: close },
@@ -362,12 +427,14 @@ const coverage = computed(() => {
   }));
 });
 
+/* ---------- 人员工作量：按当前工单巡检员聚合（真值） ---------- */
 const staffLoad = computed(() => {
-  const rand = mulberry32(9902);
-  return SYNTH_PERSONS.map((name) => ({
-    name,
-    count: Math.round(8 + rand() * 14),
-  }));
+  const count = new Map<string, number>();
+  for (const o of orders.value) {
+    if (!o.person || o.person === '待派单') continue;
+    count.set(o.person, (count.get(o.person) ?? 0) + 1);
+  }
+  return [...count.entries()].map(([name, c]) => ({ name, count: c }));
 });
 const maxStaffCount = computed(() => Math.max(1, ...staffLoad.value.map((s) => s.count)));
 </script>
@@ -531,7 +598,7 @@ const maxStaffCount = computed(() => Math.max(1, ...staffLoad.value.map((s) => s
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr); /* 四态：待执行/进行中/已完成/逾期 */
   gap: var(--panel-gap);
 }
 .board-col {

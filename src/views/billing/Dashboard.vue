@@ -4,8 +4,9 @@
   · KPI 条：用水户总数 / 抄表到户率 / 本月水费 / 收缴率 / 欠费户数 / 产销差率
   · 左列：用水户构成（5 类 MicroBar）+ 收缴率 6 个月趋势（TrendLine）
   · 中列：产销差三级水量对比（出厂总表/村级总表/用户分表，CSS 分组柱）+ 疑似漏损清单表
-  · 右列：欠费提醒（红左条行）+ 最近缴费流水（微信/营业厅/上门）
-  · 数据：本页 mock.ts（确定性常量，口径见文件头注释）
+  · 右列：欠费提醒（红左条行）+ 最近缴费流水（已缴账单）
+  · 数据（v9 真化）：/api/billing/overview 真值水合（户数/构成/收缴趋势/欠费/流水），后端不可达回落 ./mock
+    产销差三级水量 + 疑似漏损清单保留确定性形态（暂无对应接口）
 -->
 <template>
   <div class="screen">
@@ -26,12 +27,12 @@
         <div class="col">
           <Panel
             title="用水户构成"
-            :sub="`${kpi.totalUsers.toLocaleString('en-US')} 户 · 牧户占 87.0%`"
+            :sub="`${kpi.totalUsers.toLocaleString('en-US')} 户 · 牧户占 ${herderPct}%`"
             class="f12"
           >
             <div class="mix">
               <MicroBar
-                v-for="m in userMix"
+                v-for="m in userMixRows"
                 :key="m.label"
                 :label="m.label"
                 :value="m.count"
@@ -50,7 +51,7 @@
           <Panel title="收缴率趋势" sub="近 6 个月 · 目标 85%" class="f10">
             <TrendLine
               :series="collectionSeries"
-              :x-labels="collectionTrend.months"
+              :x-labels="trend.months"
               :height="316"
               smooth
             />
@@ -128,30 +129,30 @@
           <Panel
             variant="alarm"
             title="欠费提醒"
-            :sub="`${kpi.arrearsUsers} 户 · 合计 ${kpi.arrearsAmount} 万元`"
+            :sub="`${kpi.arrearsUsers} 户 · 合计 ${kpi.arrearsAmountYuan.toLocaleString('en-US')} 元`"
             class="f12"
             hero
           >
             <div class="ar-list" role="list" aria-label="欠费用户列表">
-              <div v-for="a in arrearsList" :key="a.user" class="ar-row" role="listitem">
+              <div v-for="a in arrearsRows" :key="a.account" class="ar-row" role="listitem">
                 <div class="l1">
-                  <span class="name">{{ a.user }}</span>
-                  <span class="proj num">{{ a.project }}</span>
+                  <span class="name">{{ a.owner }}</span>
+                  <span class="proj num">{{ a.account }}</span>
                   <b class="amt num">¥{{ a.amount.toFixed(1) }}</b>
                 </div>
                 <div class="l2">
-                  <span class="dim">{{ a.projectName }}</span>
+                  <span class="dim">{{ a.kind }}</span>
                   <span class="months" :class="{ hot: a.months >= 4 }">欠费 {{ a.months }} 个月</span>
                 </div>
               </div>
             </div>
           </Panel>
 
-          <Panel title="最近缴费流水" sub="今日 · 线上 + 线下" class="f10">
+          <Panel title="最近缴费流水" :sub="paySub" class="f10">
             <div class="pay-list" role="list" aria-label="缴费流水列表">
-              <div v-for="p in paymentFeed" :key="p.time + p.user" class="pay-row" role="listitem">
-                <span class="time num dim">{{ p.time }}</span>
-                <span class="puser">{{ p.user }}</span>
+              <div v-for="p in paymentRows" :key="p.key" class="pay-row" role="listitem">
+                <span class="time num dim">{{ p.period }}</span>
+                <span class="puser">{{ p.owner }}</span>
                 <b class="amt num">+{{ p.amount.toFixed(1) }}</b>
                 <span
                   class="ch"
@@ -166,11 +167,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import KpiCard from '@ui/KpiCard.vue';
 import Panel from '@ui/Panel.vue';
 import TrendLine from '@charts/TrendLine.vue';
 import MicroBar from '@charts/MicroBar.vue';
+import { apiFetch } from '@/composables/realtime';
 import {
   arrearsList,
   billingKpi,
@@ -180,7 +182,7 @@ import {
   paymentFeed,
   userMix,
 } from './mock';
-import type { LeakStatus, PayChannel } from './mock';
+import type { BillingOverview, LeakStatus, PayChannel, UserMixRow } from './mock';
 
 /* ---------- 常量 ---------- */
 /** 漏损排查状态 → 语义色（tokens.css 状态色唯一映射） */
@@ -191,35 +193,169 @@ const LEAK_COLOR: Record<LeakStatus, string> = {
   已修复: 'var(--spring-green)',
 };
 
-/** 缴费渠道 → 色板（微信绿 / 营业厅青蓝 / 上门草金） */
+/** 缴费渠道 → 色板（微信绿 / 营业厅青蓝 / 上门草金 / 真流水统一「已缴」青蓝） */
 const PAY_COLOR: Record<PayChannel, string> = {
   微信: 'var(--spring-green)',
   营业厅: 'var(--flood-teal)',
   上门: 'var(--steppe-amber)',
+  已缴: 'var(--flood-teal)',
 };
 
-const kpi = billingKpi;
+/* ---------- live 数据（mock 起步 → /api/billing/overview 水合覆盖） ---------- */
+const liveOverview = ref<BillingOverview | null>(null);
 
-/* ---------- KPI（KPI 条 6 项） ---------- */
+async function hydrateOverview(): Promise<void> {
+  const data = await apiFetch<BillingOverview>('/api/billing/overview');
+  if (data?.households) liveOverview.value = data;
+}
+
+onMounted(() => {
+  void hydrateOverview();
+});
+
+/* ---------- KPI（户数/收缴率/欠费户数/本月水费 ← 真值；抄表到户率/产销差率 ← mock） ---------- */
+const kpi = computed(() => {
+  const o = liveOverview.value;
+  const latestDue = o?.monthly.at(-1)?.due;
+  return {
+    totalUsers: o?.households ?? billingKpi.totalUsers,
+    meterRate: billingKpi.meterRate,
+    monthFee: latestDue !== undefined ? +(latestDue / 10000).toFixed(1) : billingKpi.monthFee,
+    collectionRate: o?.collectionRate ?? billingKpi.collectionRate,
+    arrearsUsers: o?.arrears.count ?? billingKpi.arrearsUsers,
+    arrearsAmountYuan: o
+      ? Math.round(o.arrears.amount)
+      : Math.round(billingKpi.arrearsAmount * 10000),
+    lossRate: billingKpi.lossRate,
+    servedPopulation: billingKpi.servedPopulation,
+    townships: billingKpi.townships,
+    waterPrice: billingKpi.waterPrice,
+  };
+});
+
 const stripKpis = computed(() => [
-  { value: kpi.totalUsers, unit: '户', label: '用水户总数', alarm: false },
-  { value: kpi.meterRate, unit: '%', label: '抄表到户率', alarm: false },
-  { value: kpi.monthFee, unit: '万元', label: '本月水费', alarm: false },
-  { value: kpi.collectionRate, unit: '%', label: '收缴率', alarm: false },
-  { value: kpi.arrearsUsers, unit: '户', label: '欠费户数', alarm: true },
-  { value: kpi.lossRate, unit: '%', label: '产销差率', alarm: false },
+  { value: kpi.value.totalUsers, unit: '户', label: '用水户总数', alarm: false },
+  { value: kpi.value.meterRate, unit: '%', label: '抄表到户率', alarm: false },
+  { value: kpi.value.monthFee, unit: '万元', label: '本月水费', alarm: false },
+  { value: kpi.value.collectionRate, unit: '%', label: '收缴率', alarm: false },
+  { value: kpi.value.arrearsUsers, unit: '户', label: '欠费户数', alarm: true },
+  { value: kpi.value.lossRate, unit: '%', label: '产销差率', alarm: false },
 ]);
 
-/* ---------- 用水户构成 ---------- */
-const userMixMax = Math.max(...userMix.map((m) => m.count));
+/* ---------- 用水户构成（composition 真值 · 沿用 mock 五类配色与顺序） ---------- */
+const userMixRows = computed<UserMixRow[]>(() => {
+  const o = liveOverview.value;
+  if (!o) return userMix;
+  return userMix
+    .map((m) => ({ ...m, count: o.composition[m.label] ?? 0 }))
+    .filter((m) => m.count > 0);
+});
 
-/* ---------- 收缴率趋势 ---------- */
+const userMixMax = computed(() => Math.max(...userMixRows.value.map((m) => m.count)));
+
+/** 牧户占比（真值口径：牧户户数 / 总户数） */
+const herderPct = computed(() => {
+  const total = userMixRows.value.reduce((s, m) => s + m.count, 0);
+  const herder = userMixRows.value.find((m) => m.label === '牧户')?.count ?? 0;
+  return total ? ((herder / total) * 100).toFixed(1) : '0.0';
+});
+
+/* ---------- 收缴率趋势（monthly.rate 真值 · 目标线 85% 保留） ---------- */
+const trend = computed(() => {
+  const o = liveOverview.value;
+  if (!o?.monthly?.length) {
+    return {
+      months: collectionTrend.months,
+      actual: collectionTrend.actual,
+      target: collectionTrend.target,
+    };
+  }
+  return {
+    months: o.monthly.map((m) => `${+m.month.slice(5)}月`),
+    actual: o.monthly.map((m) => m.rate),
+    target: o.monthly.map(() => 85),
+  };
+});
+
 const collectionSeries = computed(() => [
-  { name: '实际收缴率', data: collectionTrend.actual },
-  { name: '目标线', data: collectionTrend.target },
+  { name: '实际收缴率', data: trend.value.actual },
+  { name: '目标线', data: trend.value.target },
 ]);
 
-/* ---------- 产销差三级水量（CSS 分组柱） ---------- */
+/* ---------- 欠费提醒（arrears.items 真值 → 统一展示行） ---------- */
+interface ArrearView {
+  /** 户主 */
+  owner: string;
+  /** 户号 */
+  account: string;
+  /** 用户类别（真值按户号前缀推导，与后端 _kind_of 同口径） */
+  kind: string;
+  amount: number;
+  months: number;
+}
+
+const KIND_PREFIX: Record<string, string> = { P: '嘎查村公共', E: '养殖场', H: '卫生院', S: '学校' };
+
+function kindOf(account: string): string {
+  const raw = account.startsWith('SL26') ? account.slice(4) : account;
+  return KIND_PREFIX[raw[0]] ?? '牧户';
+}
+
+const arrearsRows = computed<ArrearView[]>(() => {
+  const o = liveOverview.value;
+  if (o) {
+    return o.arrears.items.map((i) => ({
+      owner: i.owner,
+      account: i.account,
+      kind: kindOf(i.account),
+      amount: i.amount,
+      months: i.months,
+    }));
+  }
+  return arrearsList.map((a) => ({
+    owner: a.user,
+    account: a.project,
+    kind: a.projectName,
+    amount: a.amount,
+    months: a.months,
+  }));
+});
+
+/* ---------- 最近缴费流水（recentPayments 真值 · 无渠道字段 → 统一「已缴」） ---------- */
+interface PayView {
+  key: string;
+  /** 期次/时间标签 */
+  period: string;
+  owner: string;
+  amount: number;
+  channel: PayChannel;
+}
+
+const paymentRows = computed<PayView[]>(() => {
+  const o = liveOverview.value;
+  if (o) {
+    return o.recentPayments.map((p) => ({
+      key: `${p.account}-${p.month}`,
+      period: `${+p.month.slice(5)}月`,
+      owner: p.owner,
+      amount: p.amount,
+      channel: '已缴',
+    }));
+  }
+  return paymentFeed.map((p) => ({
+    key: `${p.time}-${p.user}`,
+    period: p.time,
+    owner: p.user,
+    amount: p.amount,
+    channel: p.channel,
+  }));
+});
+
+const paySub = computed(() =>
+  liveOverview.value ? `近 ${paymentRows.value.length} 笔 · 按账期倒序` : '今日 · 线上 + 线下',
+);
+
+/* ---------- 产销差三级水量（确定性形态保留，不水合） ---------- */
 const meterMax = Math.max(...meterTrend.factory);
 
 const meterGroups = computed(() =>

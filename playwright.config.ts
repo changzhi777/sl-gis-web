@@ -11,10 +11,17 @@ export default defineConfig({
     },
   },
   use: {
-    baseURL: 'http://127.0.0.1:5173/sl-gis/',
+    baseURL: 'http://127.0.0.1:5199/sl-gis/',
     viewport: { width: 1920, height: 1080 },
     deviceScaleFactor: 1,
     ignoreHTTPSErrors: true,
+  },
+  // 自动起独立 dev server（端口 5199 避开 5173/5180/5181 既有实例 · 复用已起者）
+  webServer: {
+    command: 'pnpm dev --port 5199',
+    url: 'http://127.0.0.1:5199/sl-gis/',
+    reuseExistingServer: !process.env.CI,
+    timeout: 60_000,
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },

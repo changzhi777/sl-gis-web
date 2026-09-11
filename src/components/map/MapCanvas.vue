@@ -16,10 +16,16 @@
       <div class="mc-tilt" :style="tiltStyle">
     <svg
       class="mc-svg"
+      :class="{ grabbing: panning }"
       :viewBox="`0 0 ${MAP_W} ${mapH}`"
       preserveAspectRatio="xMidYMid meet"
       role="img"
       aria-label="供水管网事件地图"
+      @wheel.prevent="onWheel"
+      @pointerdown="onPointerDown"
+      @pointermove="onPointerMove"
+      @pointerup="onPointerUp"
+      @pointerleave="onPointerUp"
     >
       <defs>
         <!-- 流向箭头（按线宽分档；refX=10 尖端贴流向终点） -->
@@ -208,9 +214,16 @@
         <!-- g) 旗界扫光：外沿亮色短 dash 线性循环（入场期暂停，introDone 后 running） -->
         <path class="sweep" :d="bannerMainPath" />
 
-        <!-- 标牌锚点探针（不可见 · 供 HTML 标牌层实测屏幕坐标） -->
+        <!-- 标牌锚点探针（不可见 · 供 HTML 标牌层实测屏幕坐标 · 随视口缩放平移） -->
         <g ref="probeLayerEl" class="probes" aria-hidden="true">
-          <circle v-for="s in labelSpecs" :key="s.key" :data-key="s.key" :cx="s.x" :cy="s.y" r="0.6" />
+          <circle
+            v-for="s in labelSpecs"
+            :key="s.key"
+            :data-key="s.key"
+            :cx="toView(s).x"
+            :cy="toView(s).y"
+            r="0.6"
+          />
         </g>
       </g>
     </svg>
@@ -224,12 +237,12 @@
     </button>
 
     <!-- 引线层（屏幕像素坐标系：锚点 → 槽位端斜线 + 短横杠） -->
-    <svg class="mc-leaders" aria-hidden="true">
+    <svg class="mc-leaders" :style="`scale(${labelScale.toFixed(3)})`" aria-hidden="true">
       <path v-for="l in labelItems" :key="`ld-${l.key}`" class="leader" :d="l.leader" />
     </svg>
 
     <!-- HTML 标牌层（恒定 13px · 水厂金边） -->
-    <div class="mc-labels" aria-hidden="true">
+    <div class="mc-labels" :style="`scale(${labelScale.toFixed(3)})`" aria-hidden="true">
       <div
         v-for="l in labelItems"
         :key="l.key"
@@ -245,7 +258,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import type { CSSProperties } from 'vue';
 import { GRADE_SHAPE } from '@shared/types';
 import type { EmergencyEvent, MonitorPoint, PipeSegment, Project } from '@shared/types';
@@ -615,22 +628,83 @@ const linkView = computed(() =>
   }),
 );
 
-/* ================= i) viewport 聚焦（公式同 emergency 页） ================= */
+/* ================= i) viewport：聚焦 + 滚轮缩放 + 拖拽平移（2D 交互态） ================= */
 interface VPt {
   x: number;
   y: number;
 }
-const focusPt = ref<VPt | null>(null);
-const viewportStyle = computed<CSSProperties | undefined>(() => {
-  if (!focusPt.value) return undefined;
-  const s = 1.9;
-  const { x, y } = focusPt.value;
-  return {
-    transform: `translate(${(MAP_W / 2 - x * s).toFixed(1)}px, ${(mapH.value / 2 - y * s).toFixed(
-      1,
-    )}px) scale(${s})`,
-  };
-});
+const FOCUS_SCALE = 1.9;
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 6;
+
+/** 统一视口状态：zoom=1 无偏移 = 全域俯视 */
+const view = reactive({ zoom: 1, x: 0, y: 0 });
+const viewportStyle = computed<CSSProperties>(() => ({
+  transform: `translate(${view.x.toFixed(1)}px, ${view.y.toFixed(1)}px) scale(${view.zoom.toFixed(3)})`,
+  transformOrigin: '0 0',
+}));
+
+/** zoom 变化 → 标牌字号反向补偿（信息大小跟随缩放：地图放大 · 牌不变大） */
+const labelScale = computed(() => 1 / view.zoom);
+
+/** 地图坐标 → 视口变换后坐标（标牌/聚焦公式统一走这里） */
+function toView(p: Pt): Pt {
+  return { x: p.x * view.zoom + view.x, y: p.y * view.zoom + view.y };
+}
+
+function clampView(): void {
+  view.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, view.zoom));
+  // 平移边界：缩放后内容不滚出画布（留 30% 余量）
+  const maxX = 0;
+  const minX = MAP_W * (1 - view.zoom) - MAP_W * 0.3 * (view.zoom - 1);
+  const maxY = 0;
+  const minY = mapH.value * (1 - view.zoom) - mapH.value * 0.3 * (view.zoom - 1);
+  view.x = Math.min(maxX, Math.max(minX, view.x));
+  view.y = Math.min(maxY, Math.max(minY, view.y));
+}
+
+/** 滚轮缩放（指针为锚点） */
+function onWheel(e: WheelEvent): void {
+  const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  const nz = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, view.zoom * factor));
+  if (nz === view.zoom) return;
+  // viewBox 内指针位置
+  const rect = (e.currentTarget as SVGElement).getBoundingClientRect();
+  const vx = ((e.clientX - rect.left) / rect.width) * MAP_W;
+  const vy = ((e.clientY - rect.top) / rect.height) * mapH.value;
+  // 锚点世界坐标不变：new offset = old - (anchor * (nz - z))
+  view.x = vx - (vx - view.x) * (nz / view.zoom);
+  view.y = vy - (vy - view.y) * (nz / view.zoom);
+  view.zoom = nz;
+  clampView();
+  beginTransitionSync();
+}
+
+/** 拖拽平移 */
+const panning = ref(false);
+let panLast: { cx: number; cy: number } | null = null;
+function onPointerDown(e: PointerEvent): void {
+  if (e.button !== 0) return;
+  panning.value = true;
+  panLast = { cx: e.clientX, cy: e.clientY };
+  (e.currentTarget as SVGElement).setPointerCapture?.(e.pointerId);
+}
+function onPointerMove(e: PointerEvent): void {
+  if (!panning.value || !panLast) return;
+  const rect = (e.currentTarget as SVGElement).getBoundingClientRect();
+  const kx = MAP_W / rect.width;
+  const ky = mapH.value / rect.height;
+  view.x += (e.clientX - panLast.cx) * kx;
+  view.y += (e.clientY - panLast.cy) * ky;
+  panLast = { cx: e.clientX, cy: e.clientY };
+  clampView();
+  syncLabels();
+}
+function onPointerUp(): void {
+  if (!panning.value) return;
+  panning.value = false;
+  panLast = null;
+}
 
 /** 视角过渡期间的标牌同步（rAF 循环；transitionend / 兜底计时器停表） */
 let rafId = 0;
@@ -673,12 +747,18 @@ function onViewportTransitionEnd(e: Event): void {
 }
 
 function focus(lon: number, lat: number): void {
-  focusPt.value = proj(lon, lat);
+  const p = proj(lon, lat);
+  const z = FOCUS_SCALE;
+  view.zoom = z;
+  view.x = MAP_W / 2 - p.x * z;
+  view.y = mapH.value / 2 - p.y * z;
+  clampView();
   beginTransitionSync();
 }
 function reset(): void {
-  if (focusPt.value === null) return;
-  focusPt.value = null;
+  view.zoom = 1;
+  view.x = 0;
+  view.y = 0;
   beginTransitionSync();
 }
 defineExpose({ focus, reset });
@@ -1182,6 +1262,8 @@ watch(labelSpecs, async () => {
   height: 100%;
   z-index: 2;
   pointer-events: none;
+  transform-origin: 0 0;
+  transition: transform 0.28s cubic-bezier(0.33, 1, 0.68, 1);
 }
 .leader {
   fill: none;

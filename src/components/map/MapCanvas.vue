@@ -237,12 +237,12 @@
     </button>
 
     <!-- 引线层（屏幕像素坐标系：锚点 → 槽位端斜线 + 短横杠） -->
-    <svg class="mc-leaders" :style="`scale(${labelScale.toFixed(3)})`" aria-hidden="true">
+    <svg class="mc-leaders" :style="{ transform: `scale(${labelScale.toFixed(3)})` }" aria-hidden="true">
       <path v-for="l in labelItems" :key="`ld-${l.key}`" class="leader" :d="l.leader" />
     </svg>
 
     <!-- HTML 标牌层（恒定 13px · 水厂金边） -->
-    <div class="mc-labels" :style="`scale(${labelScale.toFixed(3)})`" aria-hidden="true">
+    <div class="mc-labels" :style="{ transform: `scale(${labelScale.toFixed(3)})` }" aria-hidden="true">
       <div
         v-for="l in labelItems"
         :key="l.key"
@@ -761,7 +761,20 @@ function reset(): void {
   view.y = 0;
   beginTransitionSync();
 }
-defineExpose({ focus, reset });
+/** 编程缩放（图层按钮/双指上层入口） */
+function zoomBy(factor: number): void {
+  const nz = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, view.zoom * factor));
+  if (nz === view.zoom) return;
+  // 画布中心为锚点
+  const cx = MAP_W / 2;
+  const cy = mapH.value / 2;
+  view.x = cx - (cx - view.x) * (nz / view.zoom);
+  view.y = cy - (cy - view.y) * (nz / view.zoom);
+  view.zoom = nz;
+  clampView();
+  beginTransitionSync();
+}
+defineExpose({ focus, reset, zoomBy });
 
 /* ================= HTML 标牌层（探针实测屏幕坐标 · 8 槽位轮换防叠字） ================= */
 interface LabelSpec {
@@ -964,7 +977,7 @@ watch(labelSpecs, async () => {
 }
 .basemap-btn {
   position: absolute;
-  top: 12px;
+  bottom: 12px;
   left: 12px;
   z-index: 4;
   display: flex;

@@ -362,7 +362,7 @@ async function hydrateAlerts(): Promise<void> {
 .overlay.chips-slot {
   position: absolute;
   z-index: 3;
-  top: 12px;
+  bottom: 12px;
   right: 12px;
   display: flex;
   flex-direction: column;

@@ -31,18 +31,18 @@ const app = useAppStore();
 const dev = import.meta.env.DEV;
 const winSize = ref({ w: window.innerWidth, h: window.innerHeight });
 
-/** fit 等比铺满：非 16:9 取 min 居中留黑边 */
+/** fit 等比铺满：非 16:9 取 min 居中留黑边；4K 档 = 渲染标度 ×2（非 4K 屏中心裁切放大，投墙近看模式） */
 const shellStyle = computed(() => {
-  const s = Math.min(winSize.value.w / app.canvasW, winSize.value.h / app.canvasH);
+  const base = Math.min(winSize.value.w / 1920, winSize.value.h / 1080);
+  const s = app.scaleTier === '4k' ? base * 2 : base;
   return {
-    width: `${app.canvasW}px`,
-    height: `${app.canvasH}px`,
-    zoom: app.canvasZoom,
+    width: '1920px',
+    height: '1080px',
     transform: `scale(${s.toFixed(4)})`,
   };
 });
 const resLabel = computed(
-  () => `${app.canvasW}×${app.canvasH} · s${Math.min(winSize.value.w / app.canvasW, winSize.value.h / app.canvasH).toFixed(2)}`,
+  () => `${app.scaleTier === '4k' ? '3840×2160' : '1920×1080'} · s${(Math.min(winSize.value.w / 1920, winSize.value.h / 1080) * (app.scaleTier === '4k' ? 2 : 1)).toFixed(2)}`,
 );
 
 /** 图表 resize 信号（轻量 provide/inject，替代事件总线） */

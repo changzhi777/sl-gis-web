@@ -118,17 +118,17 @@
             :style="{ '--len': p.len, '--w': p.w, '--i': p.idx }"
             :marker-end="p.endArrow ? `url(#${p.markerId})` : undefined"
           />
-          <!-- 常态流动光珠：光晕层 + 亮芯层（与旗界曲线流动同款语言 · 方向=水流方向） -->
+          <!-- 常态流动：县界双线对流同款（主线长亮段正向 · 副线暗青反向 · 低速） -->
           <path
-            class="pipe-stream glow"
+            class="pipe-stream main"
             :d="p.d"
-            :stroke-width="Math.max(2.4, p.w * 1.5)"
+            :stroke-width="Math.max(1.4, p.w * 0.8)"
             :style="{ '--len': p.len }"
           />
           <path
-            class="pipe-stream core"
+            class="pipe-stream sub"
             :d="p.d"
-            :stroke-width="Math.max(1.2, p.w * 0.7)"
+            :stroke-width="Math.max(1, p.w * 0.4)"
             :style="{ '--len': p.len }"
           />
           <!-- 选中工程关联管线：恒速流光增强（90 units/s · dash=周长/8） -->
@@ -428,9 +428,10 @@ const baseTiles = computed<BaseTile[]>(() => {
 /* ================= h) 入场编排（2.8s · 仅首挂载 · reduced-motion 直达终态） ================= */
 /** 倾斜角 → transform（0 时不建 3D 上下文，应急页零开销） */
 /** 恒返回 transform 字符串（0deg 而非 undefined——style 移除回退 none 不触发过渡） */
-const tiltStyle = computed<CSSProperties>(() => ({
-  transform: `rotateX(-${props.tilt && props.tilt > 0 ? props.tilt : 0}deg)`,
-}));
+const tiltStyle = computed<CSSProperties>(() => {
+  const deg = props.tilt && props.tilt !== 0 ? -props.tilt : 0;
+  return { transform: `rotateX(${deg}deg)` };
+});
 
 const reduced =
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -864,17 +865,6 @@ const labelSpecs = computed<LabelSpec[]>(() => {
   return specs;
 });
 
-/** 8 槽位：左上/右上 × 长短 × 再左右偏移（屏幕 px，相对锚点） */
-const SLOTS = [
-  { dx: -46, dy: -46, side: -1 },
-  { dx: -64, dy: -46, side: -1 },
-  { dx: -90, dy: -74, side: -1 },
-  { dx: -108, dy: -74, side: -1 },
-  { dx: 46, dy: -46, side: 1 },
-  { dx: 64, dy: -46, side: 1 },
-  { dx: 90, dy: -74, side: 1 },
-  { dx: 108, dy: -74, side: 1 },
-] as const;
 
 interface LabelItem {
   key: string;
@@ -906,16 +896,11 @@ function syncLabels(): void {
     rects.set(k, { x: r.left + r.width / 2 - rootRect.left, y: r.top + r.height / 2 - rootRect.top });
   });
   // 同类点（工程/告警）按索引轮换槽位
-  const counters: Record<'p' | 'a', number> = { p: 0, a: 0 };
   labelItems.value = labelSpecs.value.flatMap((s): LabelItem[] => {
     const anchor = rects.get(s.key);
     if (!anchor) return [];
-    const kind: 'p' | 'a' = s.key.startsWith('p-') ? 'p' : 'a';
-    const slot = SLOTS[counters[kind] % SLOTS.length];
-    counters[kind]++;
-    const sx = anchor.x + slot.dx;
-    const sy = anchor.y + slot.dy;
-    const barEnd = sx + slot.side * 14; // 短横杠末端 = 标牌锚定点
+    // 垂直引线：节点正上方 70px（屏幕恒定长度），标牌悬于线顶（translate(-50%,-100%)）
+    const topY = anchor.y - 70;
     return [
       {
         key: s.key,
@@ -923,11 +908,9 @@ function syncLabels(): void {
         plant: s.plant,
         sel: s.sel,
         value: s.value,
-        left: barEnd,
-        top: sy,
-        leader: `M${anchor.x.toFixed(1)} ${anchor.y.toFixed(1)}L${sx.toFixed(1)} ${sy.toFixed(
-          1,
-        )}L${barEnd.toFixed(1)} ${sy.toFixed(1)}`,
+        left: anchor.x,
+        top: topY,
+        leader: `M${anchor.x.toFixed(1)} ${anchor.y.toFixed(1)}L${anchor.x.toFixed(1)} ${topY.toFixed(1)}`,
       },
     ];
   });
@@ -1273,18 +1256,25 @@ watch(labelSpecs, async () => {
 .pipe-stream {
   fill: none;
   stroke-linecap: round;
-  stroke-dasharray: 22 104;
-  animation: mc-stream 3.6s linear infinite;
   pointer-events: none;
 }
-.pipe-stream.glow {
-  stroke: rgba(0, 255, 224, 0.3);
+/* 主流：亮青长亮段 · 与边界外沿同节拍（9s 域） */
+.pipe-stream.main {
+  stroke: rgba(0, 255, 224, 0.55);
+  stroke-dasharray: calc(var(--len) / 6) calc(var(--len) / 1.2);
+  animation: mc-stream-main 9s linear infinite;
 }
-.pipe-stream.core {
-  stroke: #aef7ff;
+/* 副流：暗青反向 · 7s（与边界内沿同节拍） */
+.pipe-stream.sub {
+  stroke: rgba(0, 194, 255, 0.3);
+  stroke-dasharray: calc(var(--len) / 8) calc(var(--len) / 1.6);
+  animation: mc-stream-sub 7s linear infinite;
 }
-@keyframes mc-stream {
-  to { stroke-dashoffset: -124; }
+@keyframes mc-stream-main {
+  to { stroke-dashoffset: calc(-1 * var(--len) * 1.2); }
+}
+@keyframes mc-stream-sub {
+  to { stroke-dashoffset: calc(var(--len) * 1.1); }
 }
 @media (prefers-reduced-motion: reduce) {
   .banner-flow, .pipe-stream { animation: none; opacity: 0.5; }

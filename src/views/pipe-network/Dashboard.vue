@@ -183,8 +183,8 @@ const layerFiltered = computed(() => ({
 /* ---------- 选中详情（工程/告警互斥） ---------- */
 const mapRef = ref<InstanceType<typeof MapCanvas> | null>(null);
 /** 视角多档：2D 俯视 ↔ 15/25/40° 伪 3D（默认 25°） */
-const TILT_STEPS = [0, 15, -35, -75, 45, 55] as const;
-const tiltDeg = ref<number>(-35);
+const TILT_STEPS = [0, 15, 45, 55, 70, -85] as const;
+const tiltDeg = ref<number>(45);
 const app = useAppStore();
 const drawerOpen = ref(false);
 const fabCount = computed(() => liveAlerts.value.filter((a) => a.status === '未签收').length);
@@ -233,6 +233,7 @@ const detail = computed<DetailView | null>(() => {
 });
 
 function onProjectClick(p: Project): void {
+  tiltDeg.value = 70;
   selectedProject.value = p;
   selectedAlert.value = null;
   selectedMonitor.value = null;
@@ -240,6 +241,7 @@ function onProjectClick(p: Project): void {
 }
 
 function onMonitorClick(m: MonitorPoint): void {
+  tiltDeg.value = 70;
   selectedMonitor.value = selectedMonitor.value?.id === m.id ? null : m;
   selectedProject.value = null;
   selectedAlert.value = null;
@@ -247,6 +249,7 @@ function onMonitorClick(m: MonitorPoint): void {
 }
 
 function onAlertClick(a: EmergencyEvent): void {
+  tiltDeg.value = 70;
   selectedAlert.value = a;
   selectedProject.value = null;
   selectedMonitor.value = null;

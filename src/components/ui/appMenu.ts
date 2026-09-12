@@ -19,6 +19,7 @@ export const MENU_GROUPS: MenuGroup[] = [
     title: '态势总览',
     items: [
       { path: '/dashboard', label: '工程一张图', icon: 'M1.5 3.5 5.5 2l5 1.5 4-1.5v10l-4 1.5-5-1.5-4 1.5zM5.5 2v10.5M10.5 3.5V14' },
+      { path: '/cockpit', label: '数据驾驶舱', icon: 'M2 12.5h12M2 8h12M2 3.5h12M4.5 6v2M8 10.5v2M11.5 6v2' },
     ],
   },
   {

@@ -5,6 +5,7 @@ const router = createRouter({
   routes: [
     { path: '/', redirect: '/dashboard' },
     { path: '/dashboard', name: 'dashboard', component: () => import('@/views/pipe-network/Dashboard.vue'), meta: { title: '工程一张图' } },
+    { path: '/cockpit', name: 'cockpit', component: () => import('@/views/cockpit/Dashboard.vue'), meta: { title: '数据驾驶舱' } },
     { path: '/scada', name: 'scada', component: () => import('@/views/scada/Dashboard.vue'), meta: { title: '运行监控' } },
     { path: '/emergency', name: 'emergency', component: () => import('@/views/emergency/Dashboard.vue'), meta: { title: '应急调度' } },
     { path: '/archives', name: 'archives', component: () => import('@/views/archives/List.vue'), meta: { title: '工程档案' } },

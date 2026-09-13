@@ -43,6 +43,33 @@
     </nav>
 
     <div class="search" role="search">
+      <!-- 当前页面指示 + 平铺全页菜单（不分组直接展示全部二级页） -->
+      <div class="page-now" ref="pageNowRoot">
+        <button
+          class="page-now-btn"
+          type="button"
+          :class="{ open: pageMenuOpen }"
+          :aria-expanded="pageMenuOpen"
+          aria-label="切换页面"
+          @click.stop="pageMenuOpen = !pageMenuOpen"
+        >
+          <span class="pn-label">{{ pageTitle }}</span>
+          <span class="caret" aria-hidden="true">{{ pageMenuOpen ? '▴' : '▾' }}</span>
+        </button>
+        <div v-if="pageMenuOpen" class="page-menu">
+          <button
+            v-for="m in ALL_PAGES"
+            :key="m.path"
+            type="button"
+            class="menu-item"
+            :class="{ active: isActive(m.path) }"
+            @click="go(m.path)"
+          >
+            <svg class="mi" viewBox="0 0 16 16" aria-hidden="true"><path :d="m.icon" /></svg>
+            <span>{{ m.label }}</span>
+          </button>
+        </div>
+      </div>
       <input
         v-model="query"
         class="search-input"
@@ -112,6 +139,20 @@ const openGroup = ref<number | null>(null);
 function toggleGroup(gi: number): void {
   openGroup.value = openGroup.value === gi ? null : gi;
 }
+
+/* ---------- 当前页 + 平铺全页菜单（搜索栏旁 · 不分组直接展示） ---------- */
+const ALL_PAGES = MENU_GROUPS.flatMap((g) => g.items);
+const pageNowRoot = ref<HTMLElement | null>(null);
+const pageMenuOpen = ref(false);
+const pageTitle = computed(() => {
+  const hit = ALL_PAGES.find((m) => isActive(m.path));
+  return (hit?.label ?? (route.meta.title as string | undefined)) || '页面';
+});
+function go(path: string): void {
+  pageMenuOpen.value = false;
+  openGroup.value = null;
+  if (route.path !== path) router.push(path);
+}
 /** 当前路由所在组的序号（一级按钮高亮） */
 function groupActive(gi: number): boolean {
   return MENU_GROUPS[gi].items.some((m) => isActive(m.path));
@@ -119,12 +160,12 @@ function groupActive(gi: number): boolean {
 function isActive(path: string): boolean {
   return route.path === path || (path === '/archives' && route.path.startsWith('/archives'));
 }
-function go(path: string): void {
-  openGroup.value = null;
-  if (route.path !== path) router.push(path);
-}
 function onDocClick(e: MouseEvent): void {
-  if (openGroup.value !== null && menuRoot.value && !menuRoot.value.contains(e.target as Node)) {
+  const t = e.target as Node;
+  if (pageMenuOpen.value && pageNowRoot.value && !pageNowRoot.value.contains(t)) {
+    pageMenuOpen.value = false;
+  }
+  if (openGroup.value !== null && menuRoot.value && !menuRoot.value.contains(t)) {
     openGroup.value = null;
   }
 }
@@ -290,7 +331,50 @@ onBeforeUnmount(() => {
 .search {
   position: relative;
   margin-left: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
+
+/* 当前页指示 + 平铺菜单 */
+.page-now { position: relative; flex: none; }
+.page-now-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--spring-green);
+  background: rgba(0, 194, 255, 0.07);
+  border: var(--border-w) solid rgba(0, 194, 255, 0.3);
+  border-radius: var(--radius);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.page-now-btn:hover,
+.page-now-btn.open {
+  border-color: rgba(0, 255, 224, 0.5);
+  background: rgba(0, 255, 224, 0.08);
+}
+.page-now-btn .caret { font-size: 10px; color: var(--text-dim); }
+
+/* 平铺全页菜单（不分组 · 直接展示全部二级页） */
+.page-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  z-index: 40;
+  min-width: 200px;
+  max-height: 66vh;
+  overflow: auto;
+  padding: 6px;
+  background: rgba(3, 8, 18, 0.96);
+  border: var(--border-w) solid var(--line-vein);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.page-menu .menu-item { font-size: 12.5px; padding: 7px 10px; }
 .search-input {
   width: 200px;
   padding: 5px 10px;

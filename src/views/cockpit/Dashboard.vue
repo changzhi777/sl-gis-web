@@ -1,126 +1,123 @@
 <!--
-  cockpit/Dashboard.vue — 数据驾驶舱（v9 · 态势感知二级页）
-  布局：L1 翻牌带 ×5 ｜ 左列 营收三率+凹凸榜 ｜ 中轴 缩略 MapCanvas ｜ 右列 事件流+处置漏斗 ｜ 底部 效能带
-  视觉：数据墨水风（局部 #0A1220 底 · 面板 #0F1A2B · 珊瑚 #FF6F52 异常 · 珊瑚≤15% 配比）
-  数据：assessment/summary + billing/overview + alerts/repairs + SSE（mock 起步 · 水合覆盖 · 失败回落）
-  下钻：KPI→SCADA · 排名→考核 · 漏斗→应急 · 效能→收费 · 地图工程点→mapFocus 一张图
+  cockpit/Dashboard.vue — 数据驾驶舱 v10（数字孪生水厂版 · A 稿落地）
+  布局：两栏 —— 左侧信息列 392px（天气卡 + 当日总览 + 苏木排名）｜右侧主区（等轴测孪生 hero + 四角毛玻璃浮层 + 状态条）
+  视觉：数据墨水风局部 tokens + 毛玻璃浮层（backdrop-blur）· 生成式背景保留
+  数据：weather(和风聚合) + assessment/billing/projects/monitors/alerts 五源水合 + SSE 四频道（mock 起步 · 失败回落）
+  下钻：排名→考核 · 事件流→应急 · 漏斗→应急 · 收费/考核快捷→对应章页
+  与一张图差异：厂区微观孪生视角（等轴测线框）vs 全域宏观地理（SVG 瓦片地图）
 -->
 <template>
   <div class="screen cockpit">
-    <!-- 生成式背景装饰（边缘粒子 + 底部水波 · 中央留白被面板覆盖） -->
     <div class="bg-deco" aria-hidden="true" />
-    <!-- L1 翻牌带 ×5 -->
-    <div class="kpi-band ed" style="--d: 0">
-      <FlipNumber :value="kpiBand.totalFlow" :decimals="2" unit="万m³" label="当日供水量" color="#00FFE0" />
-      <FlipNumber :value="kpiBand.onlineRate" :decimals="1" unit="%" label="设备在线率" color="#00C2FF" />
-      <FlipNumber :value="kpiBand.qualityRate" :decimals="1" unit="%" label="水质合格率" color="#7EE081" />
-      <FlipNumber
-        :value="kpiBand.alarm"
-        unit="条"
-        label="未签收告警"
-        :color="kpiBand.alarm > 0 ? '#FF6F52' : '#00C2FF'"
-      />
-      <FlipNumber :value="kpiBand.collectionRate" :decimals="1" unit="%" label="水费收缴率" color="#FFB454" />
-    </div>
 
-    <main class="grid">
-      <!-- 左列：营收健康三率 + 苏木排名 -->
-      <div class="col ed" style="--d: 240ms">
-        <Panel title="营收健康" sub="三率 · 统管口径">
-          <div class="rates">
-            <div v-for="r in rates" :key="r.label" class="rate-row">
-              <span class="rl">{{ r.label }}</span>
-              <span class="rv num" :style="{ color: r.color }">
-                {{ r.value.toFixed(1) }}%
-                <i class="tri" :class="[r.up ? 'up' : 'down', r.good ? 'good' : 'bad']" />
-              </span>
-            </div>
+    <div class="ck-body">
+      <!-- ===== 左侧信息列 ===== -->
+      <aside class="ck-side">
+        <WeatherCard class="ed" style="--d: 0ms" :county="COUNTY" :lon="LON" :lat="LAT" />
+
+        <GlassPanel class="ed" style="--d: 120ms" title="当日总览" sub="统管口径">
+          <div class="kpis">
+            <FlipNumber :value="kpiBand.totalFlow" :decimals="2" unit="万m³" label="当日供水量" color="#00FFE0" />
+            <FlipNumber :value="kpiBand.onlineRate" :decimals="1" unit="%" label="设备在线率" color="#00C2FF" />
+            <FlipNumber :value="kpiBand.qualityRate" :decimals="1" unit="%" label="水质合格率" color="#7EE081" />
+            <FlipNumber :value="kpiBand.alarm" unit="条" label="未签收告警" :color="kpiBand.alarm > 0 ? '#FF6F52' : '#00C2FF'" />
           </div>
-        </Panel>
-        <Panel title="苏木乡镇综合排名" sub="按工程正常率" class="rank-panel drill" @click="drill('/assessment')">
-          <span class="drill-mark">↗</span>
+        </GlassPanel>
+
+        <GlassPanel
+          class="rank-panel ed"
+          style="--d: 240ms"
+          title="苏木乡镇综合排名"
+          sub="按工程正常率"
+          drill
+          @click="drill('/assessment')"
+        >
           <RankingBoard :rows="ranking" unit="分" />
-        </Panel>
-      </div>
+        </GlassPanel>
+      </aside>
 
-      <!-- 中轴：缩略地图 -->
-      <Panel
-        class="mid ed drill"
-        style="--d: 480ms"
-        hero
-        title="全域态势"
-        sub="点击工程点下钻一张图"
-        @click="drill('/dashboard')"
-      >
-        <span class="drill-mark">↗</span>
-        <div class="map-host">
-          <MapCanvas
-            :projects="projects"
-            :monitors="monitors"
-            :pipes="pipes"
-            :alerts="alerts.slice(0, 2)"
-            :tilt="0"
-            @project-click="onMapDrill"
-          />
+      <!-- ===== 主区：孪生 hero + 毛玻璃浮层 ===== -->
+      <main class="ck-main ed" style="--d: 360ms">
+        <TwinPlant
+          :nodes="twinNodes"
+          :dosing="`水质 ${kpiBand.qualityRate.toFixed(1)}%`"
+          :pool-level="poolLevel"
+          :alarm="kpiBand.alarm > 0"
+          video="img/cockpit-twin.mp4"
+        />
+
+        <div class="hero-tag">
+          <span class="dot" aria-hidden="true" />
+          <b>厂区数字孪生</b>{{ plantName }} · LIVE
         </div>
-      </Panel>
 
-      <!-- 右列：事件流 + 处置漏斗 -->
-      <div class="col ed" style="--d: 680ms">
-        <div class="stream-wrap drill" @click="drill('/emergency')">
-          <span class="drill-mark">↗</span>
-          <AlertList :alerts="alerts" />
+        <!-- 右上：实时事件流（SSE 置顶） -->
+        <div class="float f-tr stream-wrap drill" @click="drill('/emergency')">
+          <div class="f-head"><h4>实时事件流</h4><span>{{ liveTag }}</span></div>
+          <div class="ev-scroll">
+            <AlertList :alerts="alerts" />
+          </div>
         </div>
-        <Panel title="告警处置漏斗" sub="接入 → 办结" class="funnel-panel">
-          <FunnelChart :stages="funnelStages" />
-        </Panel>
-      </div>
 
-      <!-- 底部效能带 -->
-      <div class="eff-band ed drill" style="--d: 880ms" @click="drill('/billing')">
-        <span class="drill-mark">↗</span>
-        <Panel class="trend-cell" title="产销差 · 供用差趋势" sub="近 6 期 %">
-          <TrendLine :series="effSeries" :x-labels="effLabels" :height="132" smooth :show-legend="true" />
-        </Panel>
-        <Panel title="水质达标率" sub="实测口径" class="gauge-cell">
-          <LiquidGauge :value="gaugeQuality" label="水质合格率" color="#00C2FF" />
-        </Panel>
-        <Panel title="管网覆盖率" sub="工程覆盖口径" class="gauge-cell">
-          <LiquidGauge :value="gaugeCoverage" label="管网覆盖率" color="#00FFE0" />
-        </Panel>
-      </div>
-    </main>
+        <!-- 左下：机组负载（kpi 频道驱动） -->
+        <div class="float f-bl">
+          <div class="f-head"><h4>机组负载</h4><span>近 12 时</span></div>
+          <div class="fv num">{{ kpiBand.totalFlow.toFixed(2) }}<small>万m³</small></div>
+          <div class="spark" aria-hidden="true">
+            <i v-for="(h, i) in sparkBars" :key="i" :style="{ height: h + '%' }" />
+          </div>
+        </div>
+
+        <!-- 右下：告警处置漏斗 -->
+        <div class="float f-br drill" @click="drill('/emergency')">
+          <div class="f-head"><h4>告警处置漏斗</h4><span>本周</span></div>
+          <FunnelChart :stages="funnelStages" class="f-funnel" />
+        </div>
+
+        <!-- 底部状态条 -->
+        <div class="ck-foot">
+          <span class="sm" @click="drill('/cockpit-classic')">数据总览</span>
+          <span class="sm" @click="drill('/billing')">收费总览</span>
+          <span class="sm" @click="drill('/assessment')">统计考核</span>
+          <span class="sm on">厂区孪生</span>
+          <div class="f-status">
+            <span class="dot" :class="{ dim: !sseLive }" aria-hidden="true" />
+            {{ sseLive ? '实时链路正常' : '模拟数据 · 链路降级' }} · 更新于 {{ updated }}
+          </div>
+        </div>
+      </main>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
-import Panel from '@ui/Panel.vue';
-import TrendLine from '@charts/TrendLine.vue';
+import { useRoute, useRouter } from 'vue-router';
 import FlipNumber from '@/components/cockpit/FlipNumber.vue';
 import RankingBoard from '@/components/cockpit/RankingBoard.vue';
 import FunnelChart from '@/components/cockpit/FunnelChart.vue';
-import LiquidGauge from '@/components/cockpit/LiquidGauge.vue';
-import MapCanvas from '@/components/map/MapCanvas.vue';
+import GlassPanel from '@/components/cockpit/GlassPanel.vue';
+import WeatherCard from '@/components/cockpit/WeatherCard.vue';
+import TwinPlant, { type TwinNode } from '@/components/cockpit/TwinPlant.vue';
 import AlertList from '@/views/pipe-network/AlertList.vue';
 import { mockData } from '@mock/index';
-import { realtime, onRealtime, apiFetch } from '@/composables/realtime';
-import { mapProject, mapMonitor, mapAlert, mapPipe } from '@shared/backend';
-import { useRoute } from 'vue-router';
-import type { EmergencyEvent, MonitorPoint, PipeSegment, Project } from '@shared/types';
+import { realtime, realtimeState, onRealtime, apiFetch } from '@/composables/realtime';
+import { mapAlert } from '@shared/backend';
+import type { EmergencyEvent } from '@shared/types';
+
+/** 旗县锚点（与 sumu-anchors 同源口径 · 一期固定苏尼特右旗） */
+const COUNTY = '苏尼特右旗';
+const LON = 112.65;
+const LAT = 42.74;
+const plantName = '苏尼特右旗第二水厂';
 
 const router = useRouter();
 const route = useRoute();
 const offs: Array<() => void> = [];
 
 /* ---------- live 数据（mock 起步 → 水合覆盖） ---------- */
-const projects = ref<Project[]>(mockData.projects);
-const monitors = ref<MonitorPoint[]>(mockData.monitors);
-const pipes = ref<PipeSegment[]>(mockData.pipes);
 const alerts = ref<EmergencyEvent[]>(mockData.alerts);
 
-/* ---------- KPI 翻牌带 ---------- */
 const kpiBand = ref({
   totalFlow: 1.42,
   onlineRate: 91.6,
@@ -129,80 +126,80 @@ const kpiBand = ref({
   collectionRate: 76.3,
 });
 
-/* ---------- 营收三率 ---------- */
-const rates = ref([
-  { label: '水费收缴率', value: 76.3, color: '#FFB454', up: false, good: false },
-  { label: '欠费户数率', value: 29.5, color: '#FF6F52', up: false, good: false },
-  { label: '抄表到户率', value: 92.4, color: '#00FFE0', up: true, good: true },
-]);
-
-/* ---------- 苏木排名 ---------- */
 const ranking = ref<Array<{ name: string; value: number }>>([]);
 
-/* ---------- 漏斗（告警→处置 · 从 alerts 状态推导） ---------- */
+/* ---------- 孪生场景节点（projects 聚合在线率 → 固定锚点） ---------- */
+const NODE_ANCHORS = [
+  { x: 1080, y: 320, tx: 1092, ty: 315 },
+  { x: 1105, y: 520, tx: 1046, ty: 546 },
+  { x: 90, y: 430, tx: 52, ty: 410 },
+  { x: 160, y: 640, tx: 118, ty: 666 },
+];
+const suMuRates = ref<Array<{ name: string; value: number }>>([]);
+const twinNodes = computed<TwinNode[]>(() => {
+  const src = suMuRates.value.length ? suMuRates.value : mockData.projects.slice(0, 4).map((p) => ({ name: p.name.slice(0, 5), value: p.status === 'normal' ? 94 : 86 }));
+  return src.slice(0, 4).map((s, i) => ({ ...s, name: s.name.length > 6 ? s.name.slice(0, 6) : s.name, ...NODE_ANCHORS[i] }));
+});
+
+const poolLevel = ref(82);
+
+/* ---------- 漏斗（告警→处置 · alerts 状态推导） ---------- */
 const funnelStages = computed(() => {
   const a = alerts.value;
   const n = (status: string) => a.filter((x) => x.status === status).length;
-  const unsigned = n('未签收');
-  const dispatched = n('已派单');
-  const signed = n('已签收');
-  const closed = a.filter((x) => x.status === '已销号').length;
   return [
     { name: '告警接入', value: a.length },
-    { name: '确认派单', value: dispatched + unsigned },
-    { name: '到场处置', value: dispatched + signed },
-    { name: '办结归档', value: closed },
+    { name: '确认派单', value: n('已派单') + n('未签收') },
+    { name: '到场处置', value: n('已派单') + n('已签收') },
+    { name: '办结归档', value: a.filter((x) => x.status === '已销号').length },
   ].map((s) => ({ ...s, value: Math.max(s.value, 1) }));
 });
 
-/* ---------- 效能带（确定性形态 · 产销差/供用差） ---------- */
-const effLabels = ['4月', '5月', '6月', '7月', '8月', '9月'];
-const effSeries = [
-  { name: '产销差率', data: [21.2, 20.5, 19.8, 19.1, 18.6, 18.1] },
-  { name: '供用差率', data: [12.5, 12.0, 11.4, 10.8, 10.2, 9.8] },
-];
+/* ---------- 机组负载 spark（确定性形态 · kpi 频道推尾） ---------- */
+const sparkBars = ref<number[]>([38, 52, 44, 61, 58, 72, 66, 80, 74, 88, 82, 94]);
 
-const gaugeQuality = ref(0.982);
-const gaugeCoverage = ref(0.87);
+/* ---------- 链路状态 / 更新时间 ---------- */
+const sseLive = computed(() => realtimeState.sseConnected);
+const liveTag = computed(() => (sseLive.value ? 'SSE' : 'MOCK'));
+const updated = ref('--:--');
+let clockTimer: ReturnType<typeof setInterval> | undefined;
 
-/* ---------- 下钻 ---------- */
 function drill(path: string): void {
   if (route.path !== path) router.push(path);
 }
-function onMapDrill(): void {
-  router.push('/dashboard');
-}
 
 /* ---------- 水合 ---------- */
+const INITIAL_MOCK_IDS = new Set(mockData.alerts.map((a) => a.id));
+
 async function hydrate(): Promise<void> {
-  // 并行拉五源
-  const [sum, billing, projItems, monItems, pipeItems] = await Promise.all([
+  const [sum, projItems] = await Promise.all([
     apiFetch<{ kpi: Record<string, number>; ranking: Array<{ name: string; score: number }> }>('/api/assessment/summary'),
-    apiFetch<{ households: number; collectionRate: number; arrears: { count: number; amount: number; items: unknown[] }; monthly: Array<{ month: string; due: number; paid: number; rate: number }> }>('/api/billing/overview'),
     apiFetch<{ items: unknown[] }>('/api/projects'),
-    apiFetch<{ items: unknown[] }>('/api/monitors'),
-    apiFetch<{ items: unknown[] }>('/api/pipes'),
   ]);
 
   if (sum) {
     kpiBand.value.onlineRate = sum.kpi.onlineRate;
     kpiBand.value.collectionRate = sum.kpi.collectionRate;
     ranking.value = sum.ranking.map((r) => ({ name: r.name, value: r.score }));
+    suMuRates.value = sum.ranking.map((r) => ({ name: r.name, value: r.score }));
   }
-  if (billing) {
-    kpiBand.value.collectionRate = billing.collectionRate;
-    const unpaidRate = billing.households ? (billing.arrears.count / billing.households) * 100 : 0;
-    rates.value = [
-      { label: '水费收缴率', value: billing.collectionRate, color: tierColor(billing.collectionRate, [90, 76]), up: true, good: billing.collectionRate >= 76 },
-      { label: '欠费户数率', value: +unpaidRate.toFixed(1), color: unpaidRate > 10 ? '#FF6F52' : unpaidRate > 5 ? '#FFB454' : '#00FFE0', up: false, good: unpaidRate <= 10 },
-      { label: '抄表到户率', value: 92.4, color: '#00FFE0', up: true, good: true },
-    ];
-    gaugeCoverage.value = Math.min(1, billing.households ? 0.87 : 0.87);
+  if (projItems) {
+    const items = projItems.items as Array<Record<string, unknown>>;
+    // 苏木在线率：按 su_mu 聚合 status=normal 占比（孪生远端节点数据源）
+    const byMu = new Map<string, { total: number; ok: number }>();
+    for (const p of items) {
+      const mu = String(p['su_mu'] || '未分苏木');
+      const rec = byMu.get(mu) ?? { total: 0, ok: 0 };
+      rec.total += 1;
+      if (String(p['status']) === 'normal') rec.ok += 1;
+      byMu.set(mu, rec);
+    }
+    if (byMu.size) {
+      suMuRates.value = [...byMu.entries()]
+        .map(([name, r]) => ({ name, value: (r.ok / r.total) * 100 }))
+        .sort((a, b) => b.value - a.value);
+    }
   }
-  if (projItems) projects.value = projItems.items.map((x) => mapProject(x as Record<string, unknown>));
-  if (monItems) monitors.value = monItems.items.map((x) => mapMonitor(x as Record<string, unknown>));
-  if (pipeItems) pipes.value = pipeItems.items.map((x) => mapPipe(x as Record<string, unknown>));
-
   const alertItems = await apiFetch<{ items: unknown[] }>('/api/alerts');
   if (alertItems) {
     const stock = new Set(alertItems.items.map((a) => String((a as Record<string, unknown>).id)));
@@ -212,30 +209,33 @@ async function hydrate(): Promise<void> {
   }
 }
 
-const INITIAL_MOCK_IDS = new Set(mockData.alerts.map((a) => a.id));
-
-function tierColor(v: number, [hi, mid]: [number, number]): string {
-  return v >= hi ? '#00FFE0' : v >= mid ? '#FFB454' : '#FF6F52';
-}
-
 /* ---------- 生命周期 ---------- */
 onMounted(() => {
   realtime.start({ monitors: mockData.monitors, alertPool: mockData.alerts });
 
-  // kpi 频道 → 翻牌带
   offs.push(onRealtime('kpi', (evt) => {
     const d = evt.data as Record<string, number>;
-    if (d.totalFlow) kpiBand.value.totalFlow = d.totalFlow;
+    if (d.totalFlow) {
+      kpiBand.value.totalFlow = d.totalFlow;
+      sparkBars.value = [...sparkBars.value.slice(1), Math.min(96, Math.max(30, d.totalFlow * 65))];
+    }
     if (d.onlineRate) kpiBand.value.onlineRate = d.onlineRate;
     if (d.qualityRate) kpiBand.value.qualityRate = d.qualityRate;
   }));
 
-  // alert 频道 → 事件流置顶 + 告警翻牌
   offs.push(onRealtime('alert', (evt) => {
     const a = evt.data as unknown as EmergencyEvent;
     alerts.value = [a, ...alerts.value].slice(0, 12);
     kpiBand.value.alarm += a.status === '未签收' ? 1 : 0;
   }));
+
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  const tick = () => {
+    const d = new Date();
+    updated.value = `${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  };
+  tick();
+  clockTimer = setInterval(tick, 30_000);
 
   void hydrate();
 });
@@ -243,6 +243,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   realtime.stop();
   offs.forEach((off) => off());
+  if (clockTimer) clearInterval(clockTimer);
 });
 </script>
 
@@ -261,23 +262,23 @@ onBeforeUnmount(() => {
   --well-deep: #0a1220;
   --line-vein: rgba(0, 194, 255, 0.14);
   --ck-coral: #ff6f52;
+  --ck-line: rgba(0, 194, 255, 0.16);
+  --ck-line-strong: rgba(0, 194, 255, 0.32);
 
   position: relative;
   width: 100%;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 20px;
+  padding: 16px 18px;
   background: var(--well-deep);
   overflow: hidden;
 }
 .cockpit > :not(.bg-deco) {
   position: relative;
   z-index: 1;
+  height: 100%;
 }
 
-/* ===== 入场编排（420ms cubic · L1 0 → 240 → 480 → 680 → 880） ===== */
+/* ===== 入场编排 ===== */
 .ed {
   animation: ed-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: var(--d, 0ms);
@@ -290,112 +291,129 @@ onBeforeUnmount(() => {
   .ed { animation: none; }
 }
 
-/* ===== L1 翻牌带 ===== */
-.kpi-band {
-  flex: none;
-  height: 96px;
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  align-items: center;
-  background: var(--night-navy);
-  border: 1px solid var(--line-vein);
-  border-radius: 2px;
-}
-.kpi-band > :deep(*) {
-  border-left: 1px solid rgba(232, 241, 248, 0.08);
+/* ===== 两栏骨架 ===== */
+.ck-body {
+  display: flex;
+  gap: 14px;
   height: 100%;
-  justify-content: center;
-}
-.kpi-band > :deep(*:first-child) { border-left: none; }
-
-/* ===== 主栅格 ===== */
-.grid {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 420px minmax(0, 1fr) 420px;
-  gap: 12px;
-}
-.col {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
   min-height: 0;
 }
-
-/* ===== 面板下钻暗示 ===== */
-.drill { position: relative; cursor: pointer; }
-.drill-mark {
-  position: absolute;
-  top: 12px;
-  right: 14px;
-  z-index: 2;
-  font-size: 12px;
-  color: rgba(157, 178, 198, 0.6);
-  transition: color 0.18s ease, transform 0.18s ease;
-}
-.drill:hover .drill-mark {
-  color: #00ffe0;
-  transform: translate(1px, -1px);
-}
-.drill:hover { border-color: rgba(0, 194, 255, 0.32); }
-
-/* ===== 左列 ===== */
-.col > .panel:first-child { flex: none; height: 270px; }
-.rank-panel { flex: 1; min-height: 0; overflow: hidden; }
-.rates {
+.ck-side {
+  flex: none;
+  width: 392px;
   display: flex;
   flex-direction: column;
+  gap: 14px;
+  min-height: 0;
 }
-.rate-row {
-  height: 58px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid rgba(232, 241, 248, 0.07);
-}
-.rl { font-size: 13px; color: var(--text-dim); }
-.rv {
-  font-size: 30px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.tri {
-  width: 0;
-  height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-}
-.tri.up { border-bottom: 7px solid currentColor; }
-.tri.down { border-top: 7px solid currentColor; }
-.tri.good { color: #7ee081; }
-.tri.bad { color: var(--ck-coral); }
-
-/* ===== 中轴 ===== */
-.mid { min-width: 0; display: flex; flex-direction: column; }
-.map-host {
+.ck-main {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   position: relative;
+  border-radius: 12px;
   overflow: hidden;
-  border-radius: 2px;
+  border: 1px solid var(--ck-line);
+  background: linear-gradient(180deg, rgba(10, 18, 32, 0.6), rgba(6, 12, 22, 0.72));
 }
 
-/* ===== 右列 ===== */
-.stream-wrap { flex: 1.1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; position: relative; }
-.stream-wrap > :deep(*) { flex: 1; min-height: 0; }
-.funnel-panel { flex: 1; min-height: 0; }
+/* ===== 侧栏 ===== */
+.rank-panel { flex: 1; overflow: hidden; }
+.rank-panel :deep(.rb) { height: calc(100% - 24px); }
 
-/* ===== 底部效能带 ===== */
-.eff-band {
-  grid-column: 1 / -1;
-  flex: none;
-  height: 200px;
-  display: flex;
-  gap: 12px;
+/* KPI 四宫格 */
+.kpis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
-.trend-cell { flex: 1; min-width: 0; }
-.gauge-cell { flex: none; width: 220px; }
+.kpis > * { min-height: 74px; }
+
+/* ===== 主区 hero 标签 ===== */
+.hero-tag {
+  position: absolute; left: 20px; top: 16px; z-index: 5;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; font-size: 12px; color: var(--text-dim);
+  background: rgba(10, 18, 32, 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--ck-line); border-radius: 8px;
+  pointer-events: none;
+}
+.hero-tag b { color: var(--text); font-weight: 600; margin-right: 6px; }
+.dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #00ffe0; box-shadow: 0 0 8px #00ffe0;
+  animation: dot-pulse 1.6s infinite;
+}
+.dot.dim { background: #6b7a8f; box-shadow: none; animation: none; }
+@keyframes dot-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+
+/* ===== 毛玻璃浮层 ===== */
+.float {
+  position: absolute; z-index: 10;
+  background: rgba(15, 26, 43, 0.5);
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  border: 1px solid var(--ck-line-strong);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+.float:hover { border-color: rgba(0, 194, 255, 0.5); }
+.f-tr { right: 16px; top: 16px; width: 320px; height: 300px; display: flex; flex-direction: column; }
+.f-bl { left: 16px; bottom: 62px; min-width: 200px; }
+.f-br { right: 16px; bottom: 62px; width: 300px; }
+
+.f-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.f-head::before { content: ''; width: 3px; height: 11px; background: #00c2ff; border-radius: 2px; }
+.f-head h4 { font-size: 12px; font-weight: 600; color: var(--text); margin: 0; }
+.f-head span { font-size: 10px; color: var(--text-dim); margin-left: auto; }
+.fv { font-size: 30px; font-weight: 700; line-height: 1; }
+.fv small { font-size: 12px; color: var(--text-dim); font-weight: 400; margin-left: 3px; }
+
+/* 事件流浮层：AlertList 自带 Panel → 去实底融合毛玻璃 */
+.stream-wrap { cursor: pointer; }
+.stream-wrap:hover { border-color: rgba(0, 194, 255, 0.5); }
+.ev-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; }
+.ev-scroll::-webkit-scrollbar { display: none; }
+.stream-wrap :deep(.panel) {
+  background: transparent;
+  border: none;
+  padding: 0;
+  backdrop-filter: none;
+}
+.stream-wrap :deep(.panel .p-top),
+.stream-wrap :deep(.panel .cn) { display: none; }
+.stream-wrap :deep(.ptitle) { display: none; }
+
+/* 机组 spark */
+.spark { display: flex; align-items: flex-end; gap: 4px; height: 34px; margin-top: 10px; }
+.spark i {
+  flex: 1;
+  background: linear-gradient(180deg, #00c2ff, rgba(0, 194, 255, 0.15));
+  border-radius: 2px 2px 0 0;
+  opacity: 0.85;
+  transition: height 0.6s ease;
+}
+
+/* 漏斗浮层 */
+.f-funnel { height: 132px; }
+
+/* ===== 底部状态条 ===== */
+.ck-foot {
+  position: absolute; z-index: 5; left: 20px; right: 20px; bottom: 14px;
+  display: flex; align-items: center; gap: 10px; height: 34px;
+  padding: 0 14px; font-size: 11px; color: var(--text-dim);
+  background: rgba(15, 26, 43, 0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--ck-line); border-radius: 9px;
+}
+.ck-foot .sm { color: var(--text); padding: 3px 9px; border-radius: 6px; cursor: pointer; transition: background 0.15s ease; }
+.ck-foot .sm:hover { background: rgba(0, 194, 255, 0.12); }
+.ck-foot .sm.on { color: #00ffe0; background: rgba(0, 255, 224, 0.08); }
+.f-status { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 </style>

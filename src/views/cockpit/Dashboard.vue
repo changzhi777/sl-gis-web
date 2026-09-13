@@ -36,15 +36,21 @@
         </GlassPanel>
       </aside>
 
-      <!-- ===== 主区：孪生 hero + 毛玻璃浮层 ===== -->
+      <!-- ===== 主区：四态主视觉 + 毛玻璃浮层 ===== -->
       <main class="ck-main ed" style="--d: 360ms">
-        <TwinPlant
-          :nodes="twinNodes"
-          :dosing="`水质 ${kpiBand.qualityRate.toFixed(1)}%`"
-          :pool-level="poolLevel"
-          :alarm="kpiBand.alarm > 0"
-          video="img/cockpit-twin.mp4"
-        />
+        <div class="hero-wrap">
+          <TwinPlant
+            v-show="heroView === 'twin'"
+            :nodes="twinNodes"
+            :dosing="`水质 ${kpiBand.qualityRate.toFixed(1)}%`"
+            :pool-level="poolLevel"
+            :alarm="kpiBand.alarm > 0"
+            video="img/cockpit-twin.mp4"
+          />
+          <TopoRadial v-show="heroView === 'topo'" :nodes="suMuSix" />
+          <ProcessFlow v-show="heroView === 'flow'" :pool-level="poolLevel" :quality-rate="kpiBand.qualityRate" />
+          <StyleMap v-show="heroView === 'map'" :nodes="suMuSix" />
+        </div>
 
         <div class="hero-tag">
           <span class="dot" aria-hidden="true" />
@@ -76,10 +82,14 @@
 
         <!-- 底部状态条 -->
         <div class="ck-foot">
+          <span class="sm" :class="{ on: heroView === 'twin' }" @click="heroView = 'twin'">厂区孪生</span>
+          <span class="sm" :class="{ on: heroView === 'topo' }" @click="heroView = 'topo'">供水拓扑</span>
+          <span class="sm" :class="{ on: heroView === 'flow' }" @click="heroView = 'flow'">工艺流程</span>
+          <span class="sm" :class="{ on: heroView === 'map' }" @click="heroView = 'map'">数据地图</span>
+          <i class="foot-sep" aria-hidden="true" />
           <span class="sm" @click="drill('/cockpit-classic')">数据总览</span>
           <span class="sm" @click="drill('/billing')">收费总览</span>
           <span class="sm" @click="drill('/assessment')">统计考核</span>
-          <span class="sm on">厂区孪生</span>
           <div class="f-status">
             <span class="dot" :class="{ dim: !sseLive }" aria-hidden="true" />
             {{ sseLive ? '实时链路正常' : '模拟数据 · 链路降级' }} · 更新于 {{ updated }}
@@ -99,6 +109,9 @@ import FunnelChart from '@/components/cockpit/FunnelChart.vue';
 import GlassPanel from '@/components/cockpit/GlassPanel.vue';
 import WeatherCard from '@/components/cockpit/WeatherCard.vue';
 import TwinPlant, { type TwinNode } from '@/components/cockpit/TwinPlant.vue';
+import TopoRadial from '@/components/cockpit/TopoRadial.vue';
+import ProcessFlow from '@/components/cockpit/ProcessFlow.vue';
+import StyleMap from '@/components/cockpit/StyleMap.vue';
 import AlertList from '@/views/pipe-network/AlertList.vue';
 import { mockData } from '@mock/index';
 import { realtime, realtimeState, onRealtime, apiFetch } from '@/composables/realtime';
@@ -128,6 +141,9 @@ const kpiBand = ref({
 
 const ranking = ref<Array<{ name: string; value: number }>>([]);
 
+/* ---------- 主视觉四态切换（厂区孪生 / 供水拓扑 / 工艺流程 / 数据地图） ---------- */
+const heroView = ref<'twin' | 'topo' | 'flow' | 'map'>('twin');
+
 /* ---------- 孪生场景节点（projects 聚合在线率 → 固定锚点） ---------- */
 const NODE_ANCHORS = [
   { x: 1080, y: 320, tx: 1092, ty: 315 },
@@ -136,6 +152,19 @@ const NODE_ANCHORS = [
   { x: 160, y: 640, tx: 118, ty: 666 },
 ];
 const suMuRates = ref<Array<{ name: string; value: number }>>([]);
+/** 六苏木序列（拓扑/地图两态共用 · mock 回落用设计稿基准） */
+const suMuSix = computed<Array<{ name: string; value: number }>>(() =>
+  suMuRates.value.length >= 6
+    ? suMuRates.value.slice(0, 6)
+    : [
+        { name: '赛汉塔拉镇', value: 94.2 },
+        { name: '乌日根塔拉镇', value: 91.5 },
+        { name: '朱日和镇', value: 92.8 },
+        { name: '赛汉乌力吉苏木', value: 90.1 },
+        { name: '桑宝拉格苏木', value: 88.7 },
+        { name: '额仁淖尔苏木', value: 86.3 },
+      ],
+);
 const twinNodes = computed<TwinNode[]>(() => {
   const src = suMuRates.value.length ? suMuRates.value : mockData.projects.slice(0, 4).map((p) => ({ name: p.name.slice(0, 5), value: p.status === 'normal' ? 94 : 86 }));
   return src.slice(0, 4).map((s, i) => ({ ...s, name: s.name.length > 6 ? s.name.slice(0, 6) : s.name, ...NODE_ANCHORS[i] }));
@@ -330,6 +359,18 @@ onBeforeUnmount(() => {
 .kpis > * { min-height: 74px; }
 
 /* ===== 主区 hero 标签 ===== */
+/* ===== 主区 hero 容器 ===== */
+.hero-wrap {
+  position: absolute;
+  inset: 0;
+}
+.foot-sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(0, 194, 255, 0.25);
+  margin: 0 2px;
+}
+
 .hero-tag {
   position: absolute; left: 20px; top: 16px; z-index: 5;
   display: flex; align-items: center; gap: 8px;

@@ -15,6 +15,9 @@
       <span>{{ picked.status === 'normal' ? '运行正常' : picked.status === 'warning' ? '预警关注' : '故障停机' }}</span>
       <i>{{ picked.detail }}</i>
     </div>
+    <button class="t3d-mode" type="button" @click="toggleMode" :title="mode === 'surface' ? '切换为线框模式' : '切换为表面渲染'">
+      {{ mode === 'surface' ? '◈ 表面' : '◇ 线框' }}
+    </button>
   </div>
 </template>
 
@@ -42,14 +45,17 @@ const emit = defineEmits<{ pick: [s: T3dStation | null] }>();
 const host = ref<HTMLDivElement | null>(null);
 const ready = ref(false);
 const picked = ref<T3dStation | null>(null);
+/** 渲染模式：surface = PBR 实体表面 + 阴影 · xray = 半透明发光线框 */
+const mode = ref<'surface' | 'xray'>('surface');
 
 type Ctx = {
   renderer: any; scene: any; camera: any; controls: any;
   raf: number; stop: boolean; clock: any;
   stationMeshes: Map<string, any[]>;
-  particles: any; waterMesh: any; beacon: any; beaconMat: any;
+  particles: any; beacon: any; beaconMat: any;
   autoAngle: number; lastInteract: number;
   loop: () => void;
+  applyMode: (m: 'surface' | 'xray') => void;
   dispose: () => void;
 };
 let ctx: Ctx | null = null;
@@ -80,6 +86,8 @@ async function start(): Promise<void> {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(W(), H());
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   el.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -101,22 +109,37 @@ async function start(): Promise<void> {
   controls.enablePan = false;
   controls.addEventListener('start', () => { if (ctx) ctx.lastInteract = performance.now(); });
 
-  /* ---------- 灯光（线框风以自发光为主，灯只做面亮度） ---------- */
-  scene.add(new THREE.AmbientLight(0xbfd9ff, 0.7));
-  const dir = new THREE.DirectionalLight(0x9fd0ff, 0.9);
+  /* ---------- 灯光（surface 模式用 PBR 光照 + 阴影 · xray 以自发光为主） ---------- */
+  scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x0a1220, 0.55));
+  scene.add(new THREE.AmbientLight(0xbfd9ff, 0.45));
+  const dir = new THREE.DirectionalLight(0x9fd0ff, 1.25);
   dir.position.set(400, 600, 300);
+  dir.castShadow = true;
+  dir.shadow.mapSize.set(2048, 2048);
+  dir.shadow.camera.left = -700; dir.shadow.camera.right = 700;
+  dir.shadow.camera.top = 700; dir.shadow.camera.bottom = -700;
+  dir.shadow.camera.far = 2000;
   scene.add(dir);
 
-  /* ---------- 材质工厂 ---------- */
+  /* ---------- 材质工厂（surface/xray 双模式材质对） ---------- */
   const glass = (color: number, opacity = 0.16) =>
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
   const edges = (color: number, opacity = 0.85) =>
     new THREE.LineBasicMaterial({ color, transparent: true, opacity });
 
-  /** X 光建筑：半透明体 + 发光描边 */
+  /** 建筑主体双模式材质（applyMode 切换） */
+  const MATS = {
+    surface: new THREE.MeshStandardMaterial({ color: 0x12345c, roughness: 0.55, metalness: 0.15 }),
+    xray: glass(C.teal, 0.16),
+  };
+
+  /** 建筑：面（双模式）+ 发光描边 · castShadow 供 surface 模式 */
   function building(w: number, h: number, d: number, x: number, z: number, ry = 0, tone = C.teal) {
     const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glass(tone, 0.14));
+    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), MATS.xray);
+    body.castShadow = true;
+    body.receiveShadow = true;
+    body.userData.isBody = true;
     body.position.y = h / 2;
     const wire = new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), edges(tone, 0.9));
     wire.position.y = h / 2;
@@ -128,7 +151,10 @@ async function start(): Promise<void> {
   }
 
   /* ---------- 地台 ---------- */
-  const plat = new THREE.Mesh(new THREE.CylinderGeometry(560, 560, 14, 64), glass(C.deep, 0.85));
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0x0a1424, roughness: 0.85, metalness: 0.05 });
+  const plat = new THREE.Mesh(new THREE.CylinderGeometry(560, 560, 14, 64), groundMat);
+  plat.receiveShadow = true;
+  plat.userData.isGround = true;
   plat.position.y = -7;
   scene.add(plat);
   const platEdge = new THREE.LineSegments(
@@ -182,9 +208,15 @@ async function start(): Promise<void> {
   scene.add(pipe);
 
   const COUNT = 220;
+  const SEG = 24;
   const positions = new Float32Array(COUNT * 3);
+  // 预计算曲线查找表（tick 内查表替代实时 getPoint，避免每帧向量分配）
+  const LOOKUP_N = 256;
+  const lookup: any[] = [];
+  for (let i = 0; i <= LOOKUP_N; i++) lookup.push(curve.getPoint(i / LOOKUP_N));
+  const pointAt = (u: number) => lookup[Math.round(((u % 1) + 1) % 1 * LOOKUP_N)];
   for (let i = 0; i < COUNT; i++) {
-    const p = curve.getPoint((i % 24) / 24);
+    const p = curve.getPoint((i % SEG) / SEG);
     positions.set([p.x, p.y, p.z], i * 3);
   }
   const pGeo = new THREE.BufferGeometry();
@@ -255,11 +287,11 @@ async function start(): Promise<void> {
     }
     controls.update();
 
-    // 水流粒子沿管线流动
+    // 水流粒子沿管线流动（查表）
     const arr = (particles.geometry.attributes.position as any).array as Float32Array;
     for (let i = 0; i < COUNT; i++) {
-      const u = ((t * 0.12 + i / 24) % 1);
-      const p = curve.getPoint(u);
+      const u = (t * 0.12 + i / SEG) % 1;
+      const p = pointAt(u);
       arr[i * 3] = p.x;
       arr[i * 3 + 1] = p.y;
       arr[i * 3 + 2] = p.z;
@@ -286,10 +318,19 @@ async function start(): Promise<void> {
   controls.addEventListener('change', () => { lastInteract = performance.now(); });
 
   ready.value = true;
+  /** 模式切换：body/地台换材质 · 阴影仅 surface 模式开启 */
+  const applyMode = (m: 'surface' | 'xray') => {
+    scene.traverse((o: any) => {
+      if (o.userData?.isBody) { o.material = m === 'surface' ? MATS.surface : MATS.xray; o.castShadow = m === 'surface'; }
+      if (o.userData?.isGround) { o.material = m === 'surface' ? groundMat : glass(C.deep, 0.85); }
+    });
+    renderer.shadowMap.autoUpdate = m === 'surface';
+  };
+  applyMode(mode.value);
   ctx = {
     renderer, scene, camera, controls, raf: 0, stop, clock,
-    stationMeshes, particles, waterMesh: water, beacon, beaconMat,
-    autoAngle, lastInteract, loop,
+    stationMeshes, particles, beacon, beaconMat,
+    autoAngle, lastInteract, loop, applyMode,
     dispose: () => {
       stop = true;
       cancelAnimationFrame(ctx?.raf ?? 0);
@@ -313,6 +354,10 @@ function resumeLoop(): void {
     ctx.clock.getDelta();
     ctx.loop();
   }
+}
+function toggleMode(): void {
+  mode.value = mode.value === 'surface' ? 'xray' : 'surface';
+  ctx?.applyMode?.(mode.value);
 }
 
 watch(() => props.active, (on) => {
@@ -366,6 +411,19 @@ onBeforeUnmount(() => { startToken++; ctx?.dispose(); ctx = null; });
 .t3d-tip b { font-size: 13px; color: var(--text); }
 .t3d-tip span { font-size: 11px; color: var(--spring-green); }
 .t3d-tip i { font-style: normal; font-size: 11px; color: var(--text-dim); }
+
+/* 渲染模式切换（左上 · hero-tag 下方） */
+.t3d-mode {
+  position: absolute; left: 16px; top: 52px; z-index: 5;
+  padding: 5px 12px; font-size: 11px; font-weight: 600; letter-spacing: 1px;
+  color: var(--spring-green);
+  background: rgba(10, 18, 32, 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(0, 255, 224, 0.35); border-radius: 7px;
+  cursor: pointer; transition: background 0.18s ease, border-color 0.18s ease;
+}
+.t3d-mode:hover { background: rgba(0, 255, 224, 0.12); border-color: rgba(0, 255, 224, 0.65); }
 
 @media (prefers-reduced-motion: reduce) {
   .t3d-loading .dot { animation: none; }

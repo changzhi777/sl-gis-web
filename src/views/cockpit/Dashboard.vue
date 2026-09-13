@@ -50,6 +50,13 @@
           <TopoRadial v-show="heroView === 'topo'" :nodes="suMuSix" />
           <ProcessFlow v-show="heroView === 'flow'" :pool-level="poolLevel" :quality-rate="kpiBand.qualityRate" />
           <StyleMap v-show="heroView === 'map'" :nodes="suMuSix" />
+          <TwinPlant3D
+            v-show="heroView === '3d'"
+            :active="heroView === '3d'"
+            :stations="t3dStations"
+            :pool-level="poolLevel"
+            :alarm="kpiBand.alarm > 0"
+          />
         </div>
 
         <div class="hero-tag">
@@ -86,6 +93,7 @@
           <span class="sm" :class="{ on: heroView === 'topo' }" @click="heroView = 'topo'">供水拓扑</span>
           <span class="sm" :class="{ on: heroView === 'flow' }" @click="heroView = 'flow'">工艺流程</span>
           <span class="sm" :class="{ on: heroView === 'map' }" @click="heroView = 'map'">数据地图</span>
+          <span class="sm" :class="{ on: heroView === '3d' }" @click="heroView = '3d'">交互孪生</span>
           <i class="foot-sep" aria-hidden="true" />
           <span class="sm" @click="drill('/cockpit-classic')">数据总览</span>
           <span class="sm" @click="drill('/billing')">收费总览</span>
@@ -109,6 +117,7 @@ import FunnelChart from '@/components/cockpit/FunnelChart.vue';
 import GlassPanel from '@/components/cockpit/GlassPanel.vue';
 import WeatherCard from '@/components/cockpit/WeatherCard.vue';
 import TwinPlant, { type TwinNode } from '@/components/cockpit/TwinPlant.vue';
+import TwinPlant3D, { type T3dStation } from '@/components/cockpit/TwinPlant3D.vue';
 import TopoRadial from '@/components/cockpit/TopoRadial.vue';
 import ProcessFlow from '@/components/cockpit/ProcessFlow.vue';
 import StyleMap from '@/components/cockpit/StyleMap.vue';
@@ -142,7 +151,15 @@ const kpiBand = ref({
 const ranking = ref<Array<{ name: string; value: number }>>([]);
 
 /* ---------- 主视觉四态切换（厂区孪生 / 供水拓扑 / 工艺流程 / 数据地图） ---------- */
-const heroView = ref<'twin' | 'topo' | 'flow' | 'map'>('twin');
+const heroView = ref<'twin' | 'topo' | 'flow' | 'map' | '3d'>('twin');
+
+/** 3D 场景站点状态（真数据映射 · SSE 告警联动） */
+const t3dStations = computed<T3dStation[]>(() => [
+  { key: 'treat', name: '净水车间', status: 'normal', detail: `水质 ${kpiBand.value.qualityRate.toFixed(1)}% · 1.2万m³/d` },
+  { key: 'pool', name: '清水池', status: 'normal', detail: `液位 ${poolLevel.value}% · 2×1500m³` },
+  { key: 'pump', name: '加压泵房', status: kpiBand.value.alarm > 0 ? 'warning' : 'normal', detail: '3 机组 · 2运1备' },
+  { key: 'dosing', name: '加药间', status: 'normal', detail: '余氯投加 · 自动控制' },
+]);
 
 /* ---------- 孪生场景节点（projects 聚合在线率 → 固定锚点） ---------- */
 const NODE_ANCHORS = [

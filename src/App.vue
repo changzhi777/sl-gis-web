@@ -1,9 +1,14 @@
 <template>
-  <AppShell />
+  <!-- meta.bare 路由（登录页）：独立布局；其余：AppShell 壳 -->
+  <router-view v-if="route.meta.bare" />
+  <AppShell v-else />
 </template>
 
 <script setup lang="ts">
+import { useRoute } from 'vue-router';
 import AppShell from '@/layouts/AppShell.vue';
+
+const route = useRoute();
 </script>
 
 <style>

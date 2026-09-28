@@ -1,9 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import LoginView from '@/views/auth/LoginView.vue'; // 静态引入：首屏入口省 chunk 往返
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/', redirect: '/dashboard' },
+    { path: '/login', name: 'login', component: LoginView, meta: { title: '登录', bare: true } },
     { path: '/dashboard', name: 'dashboard', component: () => import('@/views/pipe-network/Dashboard.vue'), meta: { title: '工程一张图' } },
     { path: '/cockpit', name: 'cockpit', component: () => import('@/views/cockpit/Dashboard.vue'), meta: { title: '数据驾驶舱' } },
     { path: '/cockpit-classic', name: 'cockpit-classic', component: () => import('@/views/cockpit/DashboardClassic.vue'), meta: { title: '驾驶舱·数据总览' } },
@@ -18,6 +20,15 @@ const router = createRouter({
     { path: '/assessment', name: 'assessment', component: () => import('@/views/assessment/Dashboard.vue'), meta: { title: '统计考核' } },
     { path: '/system', name: 'system', component: () => import('@/views/system/Dashboard.vue'), meta: { title: '系统管理' } },
   ],
+});
+
+// 登录守卫：无令牌一律回 /login（携带 redirect 回跳）；已登录访问 /login 放行（允许切换账号）
+router.beforeEach((to) => {
+  const authed = !!localStorage.getItem('slgis_token');
+  if (!authed && to.path !== '/login') {
+    return { path: '/login', query: to.fullPath === '/' ? undefined : { redirect: to.fullPath } };
+  }
+  return true;
 });
 
 export default router;

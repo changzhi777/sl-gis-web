@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
 
+// 登录守卫只验 token 存在性——每个用例在文档加载前注入 dummy token 放行（不依赖后端）
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('slgis_token', 'e2e-dummy-token'));
+});
+
 test.describe('SL-GIS 大屏视觉回归', () => {
   test('dashboard 1920×1080 渲染', async ({ page }) => {
     // 启动 dev server 后跑（pnpm dev 已在外层起）

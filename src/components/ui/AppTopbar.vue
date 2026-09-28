@@ -111,6 +111,12 @@
         </svg>
         <span v-if="!app.fullscreen" class="fs-text">全屏</span>
       </button>
+
+      <!-- 用户区：昵称 + 登出（全屏态随其他控件隐藏） -->
+      <span v-show="!app.fullscreen" class="user-area">
+        <b v-if="userName" class="u-name">{{ userName }}</b>
+        <button class="logout-btn" type="button" title="退出登录" @click="onLogout">退出</button>
+      </span>
     </div>
   </header>
 </template>
@@ -118,7 +124,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { apiFetch, onRealtime } from '@/composables/realtime';
+import { apiFetch, onRealtime, realtime } from '@/composables/realtime';
 import { unpackItems } from '@shared/backend';
 import { useMapFocusStore } from '@stores/mapFocus';
 import { useAppStore } from '@stores/app';
@@ -168,6 +174,18 @@ function onDocClick(e: MouseEvent): void {
   if (openGroup.value !== null && menuRoot.value && !menuRoot.value.contains(t)) {
     openGroup.value = null;
   }
+}
+
+/* ---------- 用户区：昵称（/api/user/me）+ 登出 ---------- */
+const userName = ref('');
+async function loadUser(): Promise<void> {
+  const me = await apiFetch<{ nickname?: string | null; username?: string }>('/api/user/me');
+  userName.value = me?.nickname || me?.username || '';
+}
+function onLogout(): void {
+  realtime.stop(); // 先停实时引擎（SSE 重连自愈链会自动重登，必须先断）
+  localStorage.removeItem('slgis_token');
+  router.replace('/login');
 }
 
 /* ---------- 时钟 HH:mm:ss 每秒 ---------- */
@@ -247,6 +265,9 @@ onMounted(async () => {
     responsible: '',
     metrics: {},
   }));
+
+  // 当前用户昵称（失败静默 → 用户区只显示退出）
+  void loadUser();
 
   tickClock();
   clockTimer = setInterval(tickClock, 1000);
@@ -551,6 +572,38 @@ onBeforeUnmount(() => {
   color: var(--spring-green);
   background: rgba(0, 194, 255, 0.1);
 }
+
+/* 用户区：昵称 + 退出 */
+.user-area {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.u-name {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.logout-btn {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: transparent;
+  border: var(--border-w) solid var(--line-vein);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.logout-btn:hover {
+  color: var(--status-alarm);
+  border-color: rgba(255, 92, 92, 0.55);
+}
 .right {
   margin-left: auto;
   display: flex;
@@ -626,4 +679,5 @@ onBeforeUnmount(() => {
 .topbar.fs-mode .clock { font-size: 14px; }
 .topbar.fs-mode .fs-text { display: none; }
 .topbar.fs-mode .res-tier { display: none; }
+.topbar.fs-mode .user-area { display: none; }
 </style>

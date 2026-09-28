@@ -134,10 +134,23 @@ function maybeEmitAlert(): void {
 
 let loginInflight: Promise<string | null> | null = null;
 
-/** 取令牌：本地缓存 → demo 账号自动登录（并发去重 · VITE_DEMO_USER/PASS 可覆盖） */
+/** JWT exp 本地校验（非 JWT 形态视为有效，如 e2e 种子 token） */
+function tokenExpired(token: string): boolean {
+  try {
+    const seg = token.split('.')[1] || '';
+    const b64 = seg.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (seg.length % 4)) % 4);
+    const payload = JSON.parse(atob(b64)) as { exp?: number };
+    return typeof payload.exp === 'number' && payload.exp * 1000 < Date.now();
+  } catch {
+    return false;
+  }
+}
+
+/** 取令牌：本地缓存（exp 未过期）→ demo 账号自动登录（并发去重 · VITE_DEMO_USER/PASS 可覆盖） */
 async function ensureToken(): Promise<string | null> {
   const cached = localStorage.getItem(TOKEN_KEY);
-  if (cached) return cached;
+  if (cached && !tokenExpired(cached)) return cached;
+  if (cached) localStorage.removeItem(TOKEN_KEY); // 过期即弃，走重登
   if (!loginInflight) {
     loginInflight = doLogin().finally(() => { loginInflight = null; });
   }
@@ -192,11 +205,11 @@ async function connectSSE(): Promise<void> {
     }
   };
   es.onerror = () => {
-    // EventSource 会自动重连；令牌过期(401)时主动重建登录态
+    // EventSource 会自动重连；不主动清令牌（SSE 断连 ≠ 令牌失效）——
+    // 令牌过期由 ensureToken 的 JWT exp 本地校验接管，避免守卫体系下误踢登录页
     closeSSE();
     if (sseRetry >= 3) return; // 3 次后放弃 → mock 兜底
     sseRetry++;
-    localStorage.removeItem(TOKEN_KEY); // 强制下次重新登录拿新令牌
     sseRetryTimer = setTimeout(() => { void connectSSE(); }, 5000 * sseRetry);
   };
 }
